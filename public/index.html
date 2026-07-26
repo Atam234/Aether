@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="tl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>UMPAT Communication</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ===== JOIN SCREEN ===== -->
+  <div id="join-screen" class="join-screen">
+    <div class="join-card">
+      <div class="join-logo">U</div>
+      <h1>UMPAT Communication</h1>
+      <p class="join-sub">I-type ang pangalan mo para sumali sa chat</p>
+      <input type="text" id="username-input" placeholder="Pangalan mo..." maxlength="24" autocomplete="off">
+      <button id="join-btn">Sumali</button>
+      <p id="join-error" class="join-error hidden">Maglagay muna ng pangalan.</p>
+    </div>
+  </div>
+
+  <!-- ===== MAIN APP ===== -->
+  <div id="app" class="app hidden">
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <div class="app-logo">U</div>
+        <span class="app-title">UMPAT</span>
+      </div>
+      <div class="sidebar-search">
+        <input type="text" id="search-input" placeholder="🔍 Maghanap sa mga kontak">
+      </div>
+      <div class="contacts-list" id="contacts-list">
+        <div class="no-contacts">Naghihintay ng ibang user...</div>
+      </div>
+      <div class="sidebar-footer">
+        <div class="avatar avatar-sm" id="my-avatar"></div>
+        <span id="my-name-label"></span>
+      </div>
+    </div>
+
+    <!-- Chat Area -->
+    <div class="chat-area">
+      <div class="no-chat-selected" id="no-chat-selected">
+        <div class="no-chat-icon">💬</div>
+        <p>Pumili ng kontak sa kaliwa para magsimulang mag-chat o tumawag.</p>
+      </div>
+
+      <div class="chat-window hidden" id="chat-window">
+        <div class="chat-header">
+          <div class="chat-contact-info">
+            <button class="icon-btn back-btn" id="back-btn" title="Bumalik">←</button>
+            <div class="avatar" id="chat-avatar"></div>
+            <div>
+              <div class="chat-contact-name" id="chat-contact-name"></div>
+              <div class="chat-contact-status" id="chat-contact-status">Online</div>
+            </div>
+          </div>
+          <div class="chat-header-actions">
+            <button class="icon-btn" id="voice-call-btn" title="Voice Call">📞</button>
+            <button class="icon-btn" id="video-call-btn" title="Video Call">📹</button>
+          </div>
+        </div>
+
+        <div class="messages-container" id="messages-container"></div>
+
+        <div class="chat-input-area">
+          <input type="text" id="message-input" placeholder="Aa" autocomplete="off">
+          <button id="send-btn" title="Ipadala">➤</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== INCOMING CALL MODAL ===== -->
+  <div id="incoming-call-modal" class="incoming-call-modal hidden">
+    <div class="incoming-call-card">
+      <div class="avatar avatar-lg" id="caller-avatar"></div>
+      <h2 id="caller-name"></h2>
+      <p class="incoming-call-label" id="incoming-call-label">Video calling...</p>
+      <div class="incoming-call-actions">
+        <button id="decline-call-btn" class="call-btn decline" title="Tanggihan">✕</button>
+        <button id="accept-call-btn" class="call-btn accept" title="Sagutin">📹</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== VIDEO CALL OVERLAY ===== -->
+  <div id="video-call-overlay" class="video-call-overlay hidden">
+    <video id="remote-video" autoplay playsinline></video>
+    <video id="local-video" autoplay playsinline muted></video>
+    <div class="call-top-bar">
+      <span class="call-status" id="call-status">Tumatawag...</span>
+    </div>
+    <div class="call-controls">
+      <button class="control-btn" id="toggle-mic-btn" title="I-mute/Unmute">🎤</button>
+      <button class="control-btn end-call" id="end-call-btn" title="Tapusin ang tawag">📵</button>
+      <button class="control-btn" id="toggle-cam-btn" title="Buksan/Isara ang camera">📷</button>
+    </div>
+  </div>
+
+  <!-- Simple toast para sa mga notification (hal. missed call, error) -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+</body>
+        </html>
