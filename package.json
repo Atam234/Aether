@@ -1,13 +1,16 @@
 {
   "name": "umpat-communication",
-  "version": "1.0.0",
-  "description": "UMPAT Communication - Video Call at Chat Web App (Messenger-style) na tumatakbo sa Termux",
+  "version": "2.0.0",
+  "description": "UMPAT Communication - Video Call + Chat Web App na may permanent accounts (Messenger-style)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.19.2",
-    "socket.io": "^4.7.5"
+    "socket.io": "^4.7.5",
+    "mongodb": "^6.8.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2"
   }
 }

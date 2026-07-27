@@ -1,6 +1,6 @@
-// UMPAT Communication - Server
-// Ito ang "utak" ng buong app. Pinapatakbo ito gamit ang: node server.js
-// Gagana ito sa Termux, LAN, at Internet (kasama ang mga instructions sa README.md)
+// UMPAT Communication - Server (v2: may permanent accounts + persistent chat history)
+// Kailangan ng dalawang Environment Variable sa Render: MONGODB_URI at JWT_SECRET
+// (basahin ang SETUP-ACCOUNTS-SOP.md para sa buong instructions)
 
 const fs = require('fs');
 const path = require('path');
@@ -8,26 +8,26 @@ const express = require('express');
 const http = require('http');
 const https = require('https');
 const { Server } = require('socket.io');
+const { MongoClient } = require('mongodb');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || 'umpat-dev-secret-PALITAN-MO-ITO-SA-RENDER';
+const MONGODB_URI = process.env.MONGODB_URI;
 
-// --- Piliin kung HTTP o HTTPS gagamitin ---
-// Kung meron cert.pem at key.pem (ginagawa ng generate-cert.sh), gagamit ng HTTPS.
-// Kailangan ang HTTPS para gumana ang camera/mic pag nag-access ka gamit ang
-// IP address ng device (halimbawa http://192.168.1.5:3000) sa halip na "localhost".
+app.use(express.json());
+
+// --- Piliin kung HTTP o HTTPS gagamitin (tulad ng dati) ---
 const certPath = path.join(__dirname, 'cert.pem');
 const keyPath = path.join(__dirname, 'key.pem');
-
 let server;
 let usingHttps = false;
 
 if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
   server = https.createServer(
-    {
-      cert: fs.readFileSync(certPath),
-      key: fs.readFileSync(keyPath),
-    },
+    { cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath) },
     app
   );
   usingHttps = true;
@@ -35,68 +35,224 @@ if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
   server = http.createServer(app);
 }
 
-const io = new Server(server, {
-  cors: { origin: '*' },
-});
-
+const io = new Server(server, { cors: { origin: '*' } });
 app.use(express.static(path.join(__dirname, 'public')));
 
-// --- Listahan ng mga online na user (nasa memory lang, mawawala kapag na-restart ang server) ---
-// Map: socket.id -> username
-const onlineUsers = new Map();
+// ============ MongoDB ============
 
-function broadcastUserList() {
-  const users = Array.from(onlineUsers.entries()).map(([id, name]) => ({ id, name }));
-  io.emit('user-list', users);
+let usersCollection = null;
+let messagesCollection = null;
+
+async function connectDB() {
+  if (!MONGODB_URI) {
+    console.warn('[!] Walang MONGODB_URI na environment variable.');
+    console.warn('[!] Gagana ang app pero HINDI PERMANENTE ang accounts/chat history.');
+    return;
+  }
+  try {
+    const client = new MongoClient(MONGODB_URI);
+    await client.connect();
+    const db = client.db('umpat_communication');
+    usersCollection = db.collection('users');
+    messagesCollection = db.collection('messages');
+    await usersCollection.createIndex({ username: 1 }, { unique: true });
+    await messagesCollection.createIndex({ from: 1, to: 1, timestamp: 1 });
+    console.log('[+] Konektado sa MongoDB Atlas — permanente na ang accounts at chat history.');
+  } catch (err) {
+    console.error('[!] Hindi makakonekta sa MongoDB:', err.message);
+  }
+}
+connectDB();
+
+function dbReady(res) {
+  if (!usersCollection) {
+    res.status(503).json({
+      error: 'Hindi pa naka-configure ang database. Basahin ang SETUP-ACCOUNTS-SOP.md.',
+    });
+    return false;
+  }
+  return true;
+}
+
+// ============ Auth REST endpoints ============
+
+app.post('/api/register', async (req, res) => {
+  if (!dbReady(res)) return;
+  try {
+    const { username, password } = req.body || {};
+    if (!username || !password || username.trim().length < 3 || password.length < 4) {
+      return res.status(400).json({
+        error: 'Kailangan ng username (min. 3 letra) at password (min. 4 letra).',
+      });
+    }
+    const cleanUsername = username.trim();
+    const key = cleanUsername.toLowerCase();
+    const existing = await usersCollection.findOne({ username: key });
+    if (existing) {
+      return res.status(400).json({ error: 'Kuha na ang username na iyan. Pumili ng iba.' });
+    }
+    const passwordHash = await bcrypt.hash(password, 10);
+    await usersCollection.insertOne({
+      username: key,
+      displayName: cleanUsername,
+      passwordHash,
+      createdAt: new Date(),
+    });
+    const token = jwt.sign({ username: key }, JWT_SECRET, { expiresIn: '365d' });
+    res.json({ token, username: cleanUsername });
+  } catch (err) {
+    console.error('Register error:', err.message);
+    res.status(500).json({ error: 'May error sa server. Subukan ulit.' });
+  }
+});
+
+app.post('/api/login', async (req, res) => {
+  if (!dbReady(res)) return;
+  try {
+    const { username, password } = req.body || {};
+    const key = String(username || '').trim().toLowerCase();
+    const user = await usersCollection.findOne({ username: key });
+    if (!user) return res.status(400).json({ error: 'Walang account na may ganitong username.' });
+    const match = await bcrypt.compare(password || '', user.passwordHash);
+    if (!match) return res.status(400).json({ error: 'Maling password.' });
+    const token = jwt.sign({ username: user.username }, JWT_SECRET, { expiresIn: '365d' });
+    res.json({ token, username: user.displayName });
+  } catch (err) {
+    console.error('Login error:', err.message);
+    res.status(500).json({ error: 'May error sa server. Subukan ulit.' });
+  }
+});
+
+function authMiddleware(req, res, next) {
+  const header = req.headers.authorization || '';
+  const token = header.replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'Kailangan mag-login.' });
+  try {
+    req.username = jwt.verify(token, JWT_SECRET).username;
+    next();
+  } catch (err) {
+    res.status(401).json({ error: 'Expired o invalid ang session. Mag-login ulit.' });
+  }
+}
+
+app.get('/api/users', authMiddleware, async (req, res) => {
+  if (!dbReady(res)) return;
+  const users = await usersCollection
+    .find({ username: { $ne: req.username } })
+    .project({ username: 1, displayName: 1, _id: 0 })
+    .toArray();
+  res.json(users);
+});
+
+app.get('/api/last-messages', authMiddleware, async (req, res) => {
+  if (!dbReady(res)) return;
+  const messages = await messagesCollection
+    .find({ $or: [{ from: req.username }, { to: req.username }] })
+    .sort({ timestamp: -1 })
+    .limit(500)
+    .toArray();
+  const lastByContact = {};
+  for (const m of messages) {
+    const contact = m.from === req.username ? m.to : m.from;
+    if (!lastByContact[contact]) {
+      lastByContact[contact] = {
+        message: m.message,
+        timestamp: m.timestamp,
+        mine: m.from === req.username,
+      };
+    }
+  }
+  res.json(lastByContact);
+});
+
+// ============ Socket.io (auth via JWT, hindi na basta-basta username) ============
+
+io.use((socket, next) => {
+  try {
+    const token = socket.handshake.auth && socket.handshake.auth.token;
+    if (!token) return next(new Error('Kailangan mag-login.'));
+    socket.username = jwt.verify(token, JWT_SECRET).username;
+    next();
+  } catch (err) {
+    next(new Error('Invalid o expired session.'));
+  }
+});
+
+// username -> Set ng socket.id (sakaling maraming tabs/devices)
+const socketsByUsername = new Map();
+
+function broadcastOnlineUsers() {
+  io.emit('online-users', Array.from(socketsByUsername.keys()));
+}
+
+function sendToUser(username, event, payload) {
+  const sockets = socketsByUsername.get(username);
+  if (sockets) sockets.forEach((sid) => io.to(sid).emit(event, payload));
 }
 
 io.on('connection', (socket) => {
-  console.log(`[+] Bagong koneksyon: ${socket.id}`);
+  const username = socket.username;
+  console.log(`[+] Kumonekta: ${username} (${socket.id})`);
 
-  socket.on('join', (username) => {
-    const cleanName = String(username || 'Anonymous').slice(0, 30);
-    onlineUsers.set(socket.id, cleanName);
-    console.log(`[+] Sumali si "${cleanName}" (${socket.id})`);
-    broadcastUserList();
+  if (!socketsByUsername.has(username)) socketsByUsername.set(username, new Set());
+  socketsByUsername.get(username).add(socket.id);
+  broadcastOnlineUsers();
+
+  // --- Chat history ---
+  socket.on('get-history', async ({ withUser }) => {
+    if (!messagesCollection || !withUser) return;
+    const history = await messagesCollection
+      .find({
+        $or: [
+          { from: username, to: withUser },
+          { from: withUser, to: username },
+        ],
+      })
+      .sort({ timestamp: 1 })
+      .limit(300)
+      .toArray();
+    socket.emit('chat-history', { withUser, messages: history });
   });
 
-  // --- Text Chat ---
-  socket.on('chat-message', ({ to, message }) => {
+  // --- Text Chat (naka-save na sa database ngayon) ---
+  socket.on('chat-message', async ({ to, message }) => {
     if (!to || !message) return;
-    const fromName = onlineUsers.get(socket.id) || 'Unknown';
-    io.to(to).emit('chat-message', {
-      from: socket.id,
-      fromName,
-      message: String(message).slice(0, 2000),
-      timestamp: Date.now(),
-    });
+    const doc = { from: username, to, message: String(message).slice(0, 2000), timestamp: Date.now() };
+    if (messagesCollection) {
+      try {
+        await messagesCollection.insertOne(doc);
+      } catch (err) {
+        console.error('Error sa pag-save ng mensahe:', err.message);
+      }
+    }
+    sendToUser(to, 'chat-message', doc);
   });
 
-  // --- WebRTC Signaling (para sa video/voice call) ---
+  // --- WebRTC Signaling (by username na, hindi socket id) ---
   socket.on('call-user', ({ to, offer }) => {
-    const fromName = onlineUsers.get(socket.id) || 'Unknown';
-    io.to(to).emit('incoming-call', { from: socket.id, fromName, offer });
+    sendToUser(to, 'incoming-call', { from: username, offer });
   });
 
   socket.on('answer-call', ({ to, answer }) => {
-    io.to(to).emit('call-answered', { from: socket.id, answer });
+    sendToUser(to, 'call-answered', { from: username, answer });
   });
 
   socket.on('ice-candidate', ({ to, candidate }) => {
-    if (!to) return;
-    io.to(to).emit('ice-candidate', { from: socket.id, candidate });
+    sendToUser(to, 'ice-candidate', { from: username, candidate });
   });
 
   socket.on('end-call', ({ to }) => {
-    if (!to) return;
-    io.to(to).emit('call-ended', { from: socket.id });
+    sendToUser(to, 'call-ended', { from: username });
   });
 
   socket.on('disconnect', () => {
-    const name = onlineUsers.get(socket.id);
-    onlineUsers.delete(socket.id);
-    console.log(`[-] Umalis si "${name}" (${socket.id})`);
-    broadcastUserList();
+    const set = socketsByUsername.get(username);
+    if (set) {
+      set.delete(socket.id);
+      if (set.size === 0) socketsByUsername.delete(username);
+    }
+    broadcastOnlineUsers();
+    console.log(`[-] Umalis: ${username}`);
   });
 });
 
@@ -105,10 +261,8 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('==================================================');
   console.log('  UMPAT Communication server - GUMAGANA NA!');
   console.log('==================================================');
-  console.log(`  Protocol : ${proto.toUpperCase()}${usingHttps ? '' : '  (buo lang ang camera/mic sa "localhost")'}`);
+  console.log(`  Protocol : ${proto.toUpperCase()}`);
   console.log(`  Lokal    : ${proto}://localhost:${PORT}`);
-  console.log('  Tip: para makita ang IP address mo sa LAN, patakbuhin ang:');
-  console.log('       ip addr show wlan0');
-  console.log('  (basahin ang README.md para sa kumpletong instructions)');
+  console.log(`  Database : ${MONGODB_URI ? 'Naka-configure' : 'WALANG MONGODB_URI'}`);
   console.log('==================================================');
 });
