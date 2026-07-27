@@ -45,16 +45,20 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #0084ff 0%, #00c6ff 100%);
+  background:
+    linear-gradient(160deg, rgba(0, 40, 90, 0.6), rgba(0, 15, 35, 0.8)),
+    url('images/hero-bg.jpg') center/cover no-repeat;
 }
 
 .join-card {
-  background: var(--bg-white);
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border-radius: 16px;
   padding: 40px 32px;
   width: 320px;
   text-align: center;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
 }
 
 .join-logo {
@@ -416,6 +420,9 @@ input {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  background:
+    linear-gradient(rgba(240, 242, 245, 0.94), rgba(240, 242, 245, 0.94)),
+    url('images/friends-bg.jpg') center/cover no-repeat;
 }
 
 .message-row {
