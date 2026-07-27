@@ -93,6 +93,29 @@ input {
   text-align: center;
 }
 
+.auth-tabs {
+  display: flex;
+  background: var(--bg-app);
+  border-radius: 20px;
+  padding: 3px;
+  margin-bottom: 18px;
+}
+
+.auth-tab {
+  flex: 1;
+  padding: 8px;
+  border-radius: 18px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-gray);
+}
+
+.auth-tab.active {
+  background: var(--bg-white);
+  color: var(--umpat-blue);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
 .join-card input:focus {
   border-color: var(--umpat-blue);
 }
@@ -216,11 +239,6 @@ input {
   text-overflow: ellipsis;
 }
 
-.contact-preview {
-  font-size: 12.5px;
-  color: var(--text-gray);
-}
-
 .sidebar-footer {
   display: flex;
   align-items: center;
@@ -230,6 +248,44 @@ input {
   font-size: 13.5px;
   font-weight: 600;
   color: var(--text-gray);
+}
+
+.sidebar-footer span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logout-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  color: var(--text-gray);
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logout-btn:hover {
+  background: var(--bg-app);
+  color: var(--danger-red);
+}
+
+.contact-preview {
+  font-size: 12.5px;
+  color: var(--text-gray);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.contact-preview .preview-time {
+  flex-shrink: 0;
 }
 
 /* ---- Avatars ---- */

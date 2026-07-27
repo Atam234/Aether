@@ -8,15 +8,20 @@
 </head>
 <body>
 
-  <!-- ===== JOIN SCREEN ===== -->
+  <!-- ===== LOGIN / SIGNUP SCREEN ===== -->
   <div id="join-screen" class="join-screen">
     <div class="join-card">
       <div class="join-logo">U</div>
       <h1>UMPAT Communication</h1>
-      <p class="join-sub">I-type ang pangalan mo para sumali sa chat</p>
-      <input type="text" id="username-input" placeholder="Pangalan mo..." maxlength="24" autocomplete="off">
-      <button id="join-btn">Sumali</button>
-      <p id="join-error" class="join-error hidden">Maglagay muna ng pangalan.</p>
+      <div class="auth-tabs">
+        <button id="tab-login" class="auth-tab active" type="button">Mag-login</button>
+        <button id="tab-signup" class="auth-tab" type="button">Gumawa ng Account</button>
+      </div>
+      <input type="text" id="auth-username" placeholder="Username" maxlength="24" autocomplete="off">
+      <input type="password" id="auth-password" placeholder="Password" maxlength="64" autocomplete="off">
+      <button id="auth-submit-btn">Mag-login</button>
+      <p id="auth-error" class="join-error hidden"></p>
+      <p id="auth-loading" class="join-sub hidden">Sandali lang...</p>
     </div>
   </div>
 
@@ -38,6 +43,7 @@
       <div class="sidebar-footer">
         <div class="avatar avatar-sm" id="my-avatar"></div>
         <span id="my-name-label"></span>
+        <button id="logout-btn" class="logout-btn" title="Mag-logout">⏻</button>
       </div>
     </div>
 
@@ -107,4 +113,4 @@
   <script src="/socket.io/socket.io.js"></script>
   <script src="app.js"></script>
 </body>
-        </html>
+</html>

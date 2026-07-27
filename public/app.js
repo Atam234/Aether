@@ -1,19 +1,19 @@
-// ============ UMPAT Communication — Client Logic ============
+// ============ UMPAT Communication — Client Logic (v2: permanent accounts) ============
 
-const socket = io();
-
-let myUsername = '';
-let currentChatUserId = null;
-let currentChatUserName = null;
-let onlineUsersList = [];
+let socket = null;
+let myUsername = ''; // display name
+let currentChatUserId = null; // username (lowercase key) ng kausap
+let currentChatUserName = null; // display name ng kausap
+let registeredUsers = []; // lahat ng naka-register na users (maliban sa sarili)
+let onlineUsernames = new Set();
 let localStream = null;
 let peerConnection = null;
 let pendingCallFrom = null;
-let pendingCallFromName = null;
 let pendingOffer = null;
 let inCallWith = null;
 
-const chatHistory = {}; // userId -> array of {message, timestamp, mine}
+const chatHistory = {}; // username -> array of {message, timestamp, mine}
+const lastMessages = {}; // username -> {message, timestamp, mine}
 
 const ICE_SERVERS = {
   iceServers: [
@@ -42,61 +42,248 @@ function showToast(msg, duration = 3000) {
   showToast._t = setTimeout(() => toast.classList.add('hidden'), duration);
 }
 
-// ---------- Join Screen ----------
+function formatTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) {
+    return d.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' });
+  }
+  return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
+}
+
+async function apiFetch(url, options = {}) {
+  const token = localStorage.getItem('umpat_token');
+  const headers = Object.assign({ 'Content-Type': 'application/json' }, options.headers || {});
+  if (token) headers.Authorization = 'Bearer ' + token;
+  const res = await fetch(url, Object.assign({}, options, { headers }));
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'May error na nangyari.');
+  return data;
+}
+
+// ---------- Auth Screen (Login / Signup) ----------
 
 const joinScreen = document.getElementById('join-screen');
-const usernameInput = document.getElementById('username-input');
-const joinBtn = document.getElementById('join-btn');
-const joinError = document.getElementById('join-error');
 const appEl = document.getElementById('app');
 const myAvatar = document.getElementById('my-avatar');
 const myNameLabel = document.getElementById('my-name-label');
 
-joinBtn.addEventListener('click', joinChat);
-usernameInput.addEventListener('keypress', (e) => {
-  if (e.key === 'Enter') joinChat();
+const tabLogin = document.getElementById('tab-login');
+const tabSignup = document.getElementById('tab-signup');
+const authUsername = document.getElementById('auth-username');
+const authPassword = document.getElementById('auth-password');
+const authSubmitBtn = document.getElementById('auth-submit-btn');
+const authError = document.getElementById('auth-error');
+const authLoading = document.getElementById('auth-loading');
+
+let authMode = 'login';
+
+tabLogin.addEventListener('click', () => switchAuthMode('login'));
+tabSignup.addEventListener('click', () => switchAuthMode('signup'));
+
+function switchAuthMode(mode) {
+  authMode = mode;
+  tabLogin.classList.toggle('active', mode === 'login');
+  tabSignup.classList.toggle('active', mode === 'signup');
+  authSubmitBtn.textContent = mode === 'login' ? 'Mag-login' : 'Gumawa ng Account';
+  authError.classList.add('hidden');
+}
+
+authSubmitBtn.addEventListener('click', submitAuth);
+authPassword.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') submitAuth();
 });
 
-function joinChat() {
-  const name = usernameInput.value.trim();
-  if (!name) {
-    joinError.classList.remove('hidden');
+async function submitAuth() {
+  const username = authUsername.value.trim();
+  const password = authPassword.value;
+  authError.classList.add('hidden');
+
+  if (!username || !password) {
+    authError.textContent = 'Punuan ang username at password.';
+    authError.classList.remove('hidden');
     return;
   }
-  myUsername = name;
-  socket.emit('join', name);
+
+  authLoading.classList.remove('hidden');
+  authSubmitBtn.disabled = true;
+
+  try {
+    const endpoint = authMode === 'login' ? '/api/login' : '/api/register';
+    const data = await apiFetch(endpoint, {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+    localStorage.setItem('umpat_token', data.token);
+    localStorage.setItem('umpat_username', data.username);
+    enterApp(data.token, data.username);
+  } catch (err) {
+    authError.textContent = err.message;
+    authError.classList.remove('hidden');
+  } finally {
+    authLoading.classList.add('hidden');
+    authSubmitBtn.disabled = false;
+  }
+}
+
+// ---------- Auto-login kung may naka-save nang session ----------
+
+(function tryAutoLogin() {
+  const token = localStorage.getItem('umpat_token');
+  const username = localStorage.getItem('umpat_username');
+  if (token && username) {
+    enterApp(token, username);
+  }
+})();
+
+function enterApp(token, username) {
+  myUsername = username;
   joinScreen.classList.add('hidden');
   appEl.classList.remove('hidden');
-  myAvatar.textContent = getInitials(name);
-  myNameLabel.textContent = name;
+  myAvatar.textContent = getInitials(username);
+  myNameLabel.textContent = username;
+
+  socket = io({ auth: { token } });
+
+  socket.on('connect_error', (err) => {
+    showToast('Hindi ma-verify ang session: ' + err.message, 5000);
+    if (err.message.includes('Invalid') || err.message.includes('expired')) {
+      logout();
+    }
+  });
+
+  socket.on('online-users', (usernames) => {
+    onlineUsernames = new Set(usernames);
+    renderContacts();
+  });
+
+  socket.on('chat-message', (data) => {
+    const contact = data.from === getUsernameKey() ? data.to : data.from;
+    addMessageToHistory(contact, {
+      message: data.message,
+      timestamp: data.timestamp,
+      mine: data.from === getUsernameKey(),
+    });
+    lastMessages[contact] = {
+      message: data.message,
+      timestamp: data.timestamp,
+      mine: data.from === getUsernameKey(),
+    };
+    if (contact === currentChatUserId) {
+      renderMessages();
+    } else if (data.from !== getUsernameKey()) {
+      showToast(`Bagong mensahe mula kay ${nameForUsername(data.from)}`);
+    }
+    renderContacts();
+  });
+
+  socket.on('chat-history', ({ withUser, messages }) => {
+    chatHistory[withUser] = messages.map((m) => ({
+      message: m.message,
+      timestamp: m.timestamp,
+      mine: m.from === getUsernameKey(),
+    }));
+    if (withUser === currentChatUserId) renderMessages();
+  });
+
+  registerSocketCallHandlers();
+
+  loadContactsAndHistory();
 }
+
+function getUsernameKey() {
+  // Ang server ang may hawak ng totoong lowercase key; kaya lang, para sa client
+  // logic dito, kino-compare lang natin ang "from" laban sa aking sariling
+  // socket username na ibinalik ng bawat event papasok. Gamit natin ang helper
+  // socket.username mula sa auth response (naka-store bilang myUsernameKey).
+  return myUsernameKey;
+}
+
+let myUsernameKey = '';
+
+async function loadContactsAndHistory() {
+  try {
+    const [users, last] = await Promise.all([
+      apiFetch('/api/users'),
+      apiFetch('/api/last-messages'),
+    ]);
+    registeredUsers = users; // [{username, displayName}]
+    Object.assign(lastMessages, last);
+    // hanapin ang sariling lowercase key sa pamamagitan ng token payload —
+    // pinaka-simple: hilingin natin sa /api/users list, pero mas madali:
+    // i-decode ang JWT client-side lang para makuha ang username key.
+    myUsernameKey = decodeJwtUsername(localStorage.getItem('umpat_token'));
+    renderContacts();
+  } catch (err) {
+    showToast('Hindi makuha ang listahan ng contacts: ' + err.message, 5000);
+  }
+}
+
+function decodeJwtUsername(token) {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.username;
+  } catch (err) {
+    return '';
+  }
+}
+
+function nameForUsername(usernameKey) {
+  const u = registeredUsers.find((r) => r.username === usernameKey);
+  return u ? u.displayName : usernameKey;
+}
+
+function logout() {
+  localStorage.removeItem('umpat_token');
+  localStorage.removeItem('umpat_username');
+  if (socket) socket.disconnect();
+  window.location.reload();
+}
+
+document.getElementById('logout-btn').addEventListener('click', () => {
+  if (confirm('Sigurado ka bang gusto mong mag-logout?')) logout();
+});
 
 // ---------- Contacts List ----------
 
 const contactsList = document.getElementById('contacts-list');
 
-socket.on('user-list', (users) => {
-  onlineUsersList = users.filter((u) => u.id !== socket.id);
-  renderContacts();
-});
-
 function renderContacts() {
-  if (onlineUsersList.length === 0) {
-    contactsList.innerHTML = '<div class="no-contacts">Walang ibang online na user sa ngayon. Buksan ang app na ito sa ibang device na nasa parehong network.</div>';
+  if (registeredUsers.length === 0) {
+    contactsList.innerHTML = '<div class="no-contacts">Wala pang ibang naka-register na user. Ipaalam sa kausap mo na gumawa rin ng account.</div>';
     return;
   }
+  const sorted = [...registeredUsers].sort((a, b) => {
+    const ta = lastMessages[a.username] ? lastMessages[a.username].timestamp : 0;
+    const tb = lastMessages[b.username] ? lastMessages[b.username].timestamp : 0;
+    return tb - ta;
+  });
   contactsList.innerHTML = '';
-  onlineUsersList.forEach((user) => {
+  sorted.forEach((user) => {
+    const isOnline = onlineUsernames.has(user.username);
+    const last = lastMessages[user.username];
+    const previewText = last
+      ? (last.mine ? 'Ikaw: ' : '') + last.message
+      : isOnline
+      ? 'Online'
+      : 'Offline';
+    const previewTime = last ? formatTime(last.timestamp) : '';
+
     const div = document.createElement('div');
-    div.className = 'contact-item' + (user.id === currentChatUserId ? ' active' : '');
+    div.className = 'contact-item' + (user.username === currentChatUserId ? ' active' : '');
     div.innerHTML = `
-      <div class="avatar">${getInitials(user.name)}<span class="online-dot"></span></div>
+      <div class="avatar">${getInitials(user.displayName)}${isOnline ? '<span class="online-dot"></span>' : ''}</div>
       <div class="contact-info">
-        <div class="contact-name">${escapeHtml(user.name)}</div>
-        <div class="contact-preview">Online</div>
+        <div class="contact-name">${escapeHtml(user.displayName)}</div>
+        <div class="contact-preview">
+          <span>${escapeHtml(previewText)}</span>
+          ${previewTime ? `<span class="preview-time">${previewTime}</span>` : ''}
+        </div>
       </div>
     `;
-    div.addEventListener('click', () => openChat(user.id, user.name));
+    div.addEventListener('click', () => openChat(user.username, user.displayName));
     contactsList.appendChild(div);
   });
 }
@@ -106,22 +293,30 @@ function renderContacts() {
 const noChatSelected = document.getElementById('no-chat-selected');
 const chatWindow = document.getElementById('chat-window');
 const chatContactName = document.getElementById('chat-contact-name');
+const chatContactStatus = document.getElementById('chat-contact-status');
 const chatAvatar = document.getElementById('chat-avatar');
 const messagesContainer = document.getElementById('messages-container');
 const messageInput = document.getElementById('message-input');
 const sendBtn = document.getElementById('send-btn');
 const backBtn = document.getElementById('back-btn');
 
-function openChat(userId, userName) {
-  currentChatUserId = userId;
-  currentChatUserName = userName;
+function openChat(usernameKey, displayName) {
+  currentChatUserId = usernameKey;
+  currentChatUserName = displayName;
   noChatSelected.classList.add('hidden');
   chatWindow.classList.remove('hidden');
-  chatContactName.textContent = userName;
-  chatAvatar.textContent = getInitials(userName);
+  chatContactName.textContent = displayName;
+  chatAvatar.textContent = getInitials(displayName);
+  chatContactStatus.textContent = onlineUsernames.has(usernameKey) ? 'Online' : 'Offline';
   appEl.classList.add('chat-open');
   renderContacts();
-  renderMessages();
+
+  if (!chatHistory[usernameKey]) {
+    messagesContainer.innerHTML = '<div class="no-contacts">Kinukuha ang mga lumang mensahe...</div>';
+    socket.emit('get-history', { withUser: usernameKey });
+  } else {
+    renderMessages();
+  }
 }
 
 backBtn.addEventListener('click', () => {
@@ -137,27 +332,12 @@ function sendMessage() {
   const text = messageInput.value.trim();
   if (!text || !currentChatUserId) return;
   socket.emit('chat-message', { to: currentChatUserId, message: text });
-  addMessageToHistory(currentChatUserId, { message: text, timestamp: Date.now(), mine: true });
   messageInput.value = '';
-  renderMessages();
 }
 
-socket.on('chat-message', (data) => {
-  addMessageToHistory(data.from, {
-    message: data.message,
-    timestamp: data.timestamp,
-    mine: false,
-  });
-  if (data.from === currentChatUserId) {
-    renderMessages();
-  } else {
-    showToast(`Bagong mensahe mula kay ${data.fromName}`);
-  }
-});
-
-function addMessageToHistory(userId, msg) {
-  if (!chatHistory[userId]) chatHistory[userId] = [];
-  chatHistory[userId].push(msg);
+function addMessageToHistory(usernameKey, msg) {
+  if (!chatHistory[usernameKey]) chatHistory[usernameKey] = [];
+  chatHistory[usernameKey].push(msg);
 }
 
 function renderMessages() {
@@ -178,7 +358,7 @@ function renderMessages() {
   messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
-// ---------- Video Call (WebRTC) ----------
+// ---------- Video Call (WebRTC) — by username na ngayon, hindi socket id ----------
 
 const videoCallBtn = document.getElementById('video-call-btn');
 const voiceCallBtn = document.getElementById('voice-call-btn');
@@ -197,13 +377,50 @@ const incomingCallLabel = document.getElementById('incoming-call-label');
 const acceptCallBtn = document.getElementById('accept-call-btn');
 const declineCallBtn = document.getElementById('decline-call-btn');
 
+function registerSocketCallHandlers() {
+  socket.on('incoming-call', async ({ from, offer }) => {
+    if (peerConnection) {
+      socket.emit('end-call', { to: from });
+      return;
+    }
+    pendingCallFrom = from;
+    pendingOffer = offer;
+    const displayName = nameForUsername(from);
+    callerName.textContent = displayName;
+    callerAvatar.textContent = getInitials(displayName);
+    incomingCallLabel.textContent = 'Video calling...';
+    incomingCallModal.classList.remove('hidden');
+  });
+
+  socket.on('call-answered', async ({ answer }) => {
+    if (!peerConnection) return;
+    await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+    callStatus.textContent = 'Nakakonekta';
+  });
+
+  socket.on('ice-candidate', async ({ candidate }) => {
+    if (peerConnection && candidate) {
+      try {
+        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.error('Error sa pag-add ng ICE candidate:', err);
+      }
+    }
+  });
+
+  socket.on('call-ended', () => {
+    showToast('Natapos ang tawag.');
+    endCall(false);
+  });
+}
+
 videoCallBtn.addEventListener('click', () => startCall(true));
 voiceCallBtn.addEventListener('click', () => startCall(false));
 
 async function startCall(withVideo) {
   if (!currentChatUserId) return;
   if (!window.isSecureContext) {
-    showToast('Kailangan ng HTTPS o localhost para gumana ang camera/mic. Basahin ang README.md.', 6000);
+    showToast('Kailangan ng HTTPS para gumana ang camera/mic.', 5000);
     return;
   }
   try {
@@ -226,12 +443,12 @@ async function startCall(withVideo) {
   socket.emit('call-user', { to: currentChatUserId, offer });
 }
 
-function createPeerConnection(targetId) {
+function createPeerConnection(targetUsername) {
   const pc = new RTCPeerConnection(ICE_SERVERS);
 
   pc.onicecandidate = (event) => {
     if (event.candidate) {
-      socket.emit('ice-candidate', { to: targetId, candidate: event.candidate });
+      socket.emit('ice-candidate', { to: targetUsername, candidate: event.candidate });
     }
   };
 
@@ -249,30 +466,11 @@ function createPeerConnection(targetId) {
   return pc;
 }
 
-socket.on('incoming-call', async ({ from, fromName, offer }) => {
-  if (peerConnection) {
-    // Busy na sa ibang tawag — awtomatikong tanggihan
-    io_emitEndCall(from);
-    return;
-  }
-  pendingCallFrom = from;
-  pendingCallFromName = fromName;
-  pendingOffer = offer;
-  callerName.textContent = fromName;
-  callerAvatar.textContent = getInitials(fromName);
-  incomingCallLabel.textContent = 'Video calling...';
-  incomingCallModal.classList.remove('hidden');
-});
-
-function io_emitEndCall(to) {
-  socket.emit('end-call', { to });
-}
-
 acceptCallBtn.addEventListener('click', async () => {
   incomingCallModal.classList.add('hidden');
   if (!window.isSecureContext) {
-    showToast('Kailangan ng HTTPS o localhost para gumana ang camera/mic. Basahin ang README.md.', 6000);
-    io_emitEndCall(pendingCallFrom);
+    showToast('Kailangan ng HTTPS para gumana ang camera/mic.', 5000);
+    socket.emit('end-call', { to: pendingCallFrom });
     pendingCallFrom = null;
     pendingOffer = null;
     return;
@@ -281,7 +479,7 @@ acceptCallBtn.addEventListener('click', async () => {
     localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
   } catch (err) {
     showToast('Hindi ma-access ang camera/mic: ' + err.message, 5000);
-    io_emitEndCall(pendingCallFrom);
+    socket.emit('end-call', { to: pendingCallFrom });
     pendingCallFrom = null;
     pendingOffer = null;
     return;
@@ -301,7 +499,7 @@ acceptCallBtn.addEventListener('click', async () => {
   socket.emit('answer-call', { to: pendingCallFrom, answer });
 
   if (!currentChatUserId) {
-    openChat(pendingCallFrom, pendingCallFromName);
+    openChat(pendingCallFrom, nameForUsername(pendingCallFrom));
   }
 
   pendingCallFrom = null;
@@ -310,30 +508,9 @@ acceptCallBtn.addEventListener('click', async () => {
 
 declineCallBtn.addEventListener('click', () => {
   incomingCallModal.classList.add('hidden');
-  if (pendingCallFrom) io_emitEndCall(pendingCallFrom);
+  if (pendingCallFrom) socket.emit('end-call', { to: pendingCallFrom });
   pendingCallFrom = null;
   pendingOffer = null;
-});
-
-socket.on('call-answered', async ({ answer }) => {
-  if (!peerConnection) return;
-  await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-  callStatus.textContent = 'Nakakonekta';
-});
-
-socket.on('ice-candidate', async ({ candidate }) => {
-  if (peerConnection && candidate) {
-    try {
-      await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-    } catch (err) {
-      console.error('Error sa pag-add ng ICE candidate:', err);
-    }
-  }
-});
-
-socket.on('call-ended', () => {
-  showToast('Natapos ang tawag.');
-  endCall(false);
 });
 
 function showCallOverlay(status) {
@@ -345,7 +522,7 @@ endCallBtn.addEventListener('click', () => endCall(true));
 
 function endCall(notifyPeer) {
   if (notifyPeer && inCallWith) {
-    io_emitEndCall(inCallWith);
+    socket.emit('end-call', { to: inCallWith });
   }
   if (peerConnection) {
     peerConnection.close();
@@ -379,16 +556,14 @@ toggleCamBtn.addEventListener('click', () => {
   toggleCamBtn.classList.toggle('off', !videoTrack.enabled);
 });
 
-// ---------- Search filter (simpleng client-side filter) ----------
+// ---------- Search filter ----------
 
 const searchInput = document.getElementById('search-input');
 searchInput.addEventListener('input', () => {
   const q = searchInput.value.trim().toLowerCase();
-  const filtered = q
-    ? onlineUsersList.filter((u) => u.name.toLowerCase().includes(q))
-    : onlineUsersList;
-  const original = onlineUsersList;
-  onlineUsersList = filtered;
-  renderContacts();
-  onlineUsersList = original;
+  const items = contactsList.querySelectorAll('.contact-item');
+  items.forEach((item) => {
+    const name = item.querySelector('.contact-name').textContent.toLowerCase();
+    item.style.display = name.includes(q) ? 'flex' : 'none';
+  });
 });
