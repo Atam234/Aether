@@ -226,6 +226,7 @@ io.on('connection', (socket) => {
       }
     }
     sendToUser(to, 'chat-message', doc);
+    sendToUser(username, 'chat-message', doc); // ibalik din sa sarili para makita ang sariling mensahe
   });
 
   // --- WebRTC Signaling (by username na, hindi socket id) ---
