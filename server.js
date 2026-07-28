@@ -330,5 +330,10 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  Protocol : ${proto.toUpperCase()}`);
   console.log(`  Lokal    : ${proto}://localhost:${PORT}`);
   console.log(`  Database : ${MONGODB_URI ? 'Naka-configure' : 'WALANG MONGODB_URI'}`);
+  console.log(
+    `  TURN     : ${
+      process.env.TURN_USERNAME && process.env.TURN_CREDENTIAL ? 'Naka-configure' : 'WALANG TURN_USERNAME/TURN_CREDENTIAL'
+    }`
+  );
   console.log('==================================================');
 });
