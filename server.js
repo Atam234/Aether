@@ -135,6 +135,32 @@ function authMiddleware(req, res, next) {
   }
 }
 
+app.get('/api/ice-servers', authMiddleware, (req, res) => {
+  const iceServers = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ];
+  // Kung naka-configure ang TURN_USERNAME/TURN_CREDENTIAL (galing sa ExpressTurn
+  // o kahit anong TURN provider), idinadagdag ito bilang "relay" na fallback —
+  // kailangan ito para gumana ang video call sa mobile data at ibang mahigpit
+  // na network kung saan hindi sapat ang STUN lang.
+  if (process.env.TURN_USERNAME && process.env.TURN_CREDENTIAL) {
+    iceServers.push(
+      {
+        urls: 'turn:free.expressturn.com:3478',
+        username: process.env.TURN_USERNAME,
+        credential: process.env.TURN_CREDENTIAL,
+      },
+      {
+        urls: 'turn:free.expressturn.com:3478?transport=tcp',
+        username: process.env.TURN_USERNAME,
+        credential: process.env.TURN_CREDENTIAL,
+      }
+    );
+  }
+  res.json({ iceServers });
+});
+
 app.get('/api/users', authMiddleware, async (req, res) => {
   if (!dbReady(res)) return;
   const users = await usersCollection
