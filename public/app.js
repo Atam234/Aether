@@ -2,6 +2,7 @@
 
 let socket = null;
 let myUsername = ''; // display name
+let myProfilePicture = '';
 let currentChatUserId = null; // username (lowercase key) ng kausap
 let currentChatUserName = null; // display name ng kausap
 let registeredUsers = []; // lahat ng naka-register na users (maliban sa sarili)
@@ -15,6 +16,36 @@ let inCallWith = null;
 const chatHistory = {}; // username -> array of {message, timestamp, mine}
 const lastMessages = {}; // username -> {message, timestamp, mine}
 
+// Dark mode agad i-apply bago mag-render ng kahit ano, para walang "flash"
+if (localStorage.getItem('umpat_dark_mode') === 'true') {
+  document.documentElement.classList.add('dark-mode');
+}
+
+// I-detect kung binuksan ang site sa loob ng Facebook/Messenger/Instagram
+// in-app browser — hindi gagana ang camera doon kahit anong permission.
+(function checkInAppBrowser() {
+  const ua = navigator.userAgent || '';
+  const isInApp = /FBAN|FBAV|Instagram|Line\//i.test(ua);
+  if (!isInApp) return;
+  const banner = document.getElementById('webview-banner');
+  if (!banner) return;
+  banner.classList.remove('hidden');
+  const copyBtn = document.getElementById('copy-link-btn');
+  const dismissBtn = document.getElementById('dismiss-banner-btn');
+  copyBtn.addEventListener('click', () => {
+    const url = window.location.href;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard
+        .writeText(url)
+        .then(() => showToast('Na-kopya ang link!'))
+        .catch(() => window.prompt('Kopyahin ang link:', url));
+    } else {
+      window.prompt('Kopyahin ang link:', url);
+    }
+  });
+  dismissBtn.addEventListener('click', () => banner.classList.add('hidden'));
+})();
+
 const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -26,6 +57,13 @@ const ICE_SERVERS = {
 
 function getInitials(name) {
   return (name || '?').trim().charAt(0).toUpperCase();
+}
+
+function avatarInner(name, profilePicture, extra = '') {
+  if (profilePicture) {
+    return `<img src="${profilePicture}" alt="${escapeHtml(name)}">${extra}`;
+  }
+  return `${getInitials(name)}${extra}`;
 }
 
 function escapeHtml(str) {
@@ -142,7 +180,7 @@ function enterApp(token, username) {
   myUsername = username;
   joinScreen.classList.add('hidden');
   appEl.classList.remove('hidden');
-  myAvatar.textContent = getInitials(username);
+  myAvatar.innerHTML = avatarInner(username, myProfilePicture);
   myNameLabel.textContent = username;
 
   socket = io({ auth: { token } });
@@ -205,16 +243,19 @@ let myUsernameKey = '';
 
 async function loadContactsAndHistory() {
   try {
-    const [users, last] = await Promise.all([
+    const [users, last, me] = await Promise.all([
       apiFetch('/api/users'),
       apiFetch('/api/last-messages'),
+      apiFetch('/api/me'),
     ]);
-    registeredUsers = users; // [{username, displayName}]
+    registeredUsers = users; // [{username, displayName, profilePicture}]
     Object.assign(lastMessages, last);
     // hanapin ang sariling lowercase key sa pamamagitan ng token payload —
     // pinaka-simple: hilingin natin sa /api/users list, pero mas madali:
     // i-decode ang JWT client-side lang para makuha ang username key.
     myUsernameKey = decodeJwtUsername(localStorage.getItem('umpat_token'));
+    myProfilePicture = me.profilePicture || '';
+    myAvatar.innerHTML = avatarInner(myUsername, myProfilePicture);
     renderContacts();
   } catch (err) {
     showToast('Hindi makuha ang listahan ng contacts: ' + err.message, 5000);
@@ -233,6 +274,11 @@ function decodeJwtUsername(token) {
 function nameForUsername(usernameKey) {
   const u = registeredUsers.find((r) => r.username === usernameKey);
   return u ? u.displayName : usernameKey;
+}
+
+function pictureForUsername(usernameKey) {
+  const u = registeredUsers.find((r) => r.username === usernameKey);
+  return u ? u.profilePicture || '' : '';
 }
 
 function logout() {
@@ -274,7 +320,7 @@ function renderContacts() {
     const div = document.createElement('div');
     div.className = 'contact-item' + (user.username === currentChatUserId ? ' active' : '');
     div.innerHTML = `
-      <div class="avatar">${getInitials(user.displayName)}${isOnline ? '<span class="online-dot"></span>' : ''}</div>
+      <div class="avatar">${avatarInner(user.displayName, user.profilePicture, isOnline ? '<span class="online-dot"></span>' : '')}</div>
       <div class="contact-info">
         <div class="contact-name">${escapeHtml(user.displayName)}</div>
         <div class="contact-preview">
@@ -306,7 +352,7 @@ function openChat(usernameKey, displayName) {
   noChatSelected.classList.add('hidden');
   chatWindow.classList.remove('hidden');
   chatContactName.textContent = displayName;
-  chatAvatar.textContent = getInitials(displayName);
+  chatAvatar.innerHTML = avatarInner(displayName, pictureForUsername(usernameKey));
   chatContactStatus.textContent = onlineUsernames.has(usernameKey) ? 'Online' : 'Offline';
   appEl.classList.add('chat-open');
   renderContacts();
@@ -387,7 +433,7 @@ function registerSocketCallHandlers() {
     pendingOffer = offer;
     const displayName = nameForUsername(from);
     callerName.textContent = displayName;
-    callerAvatar.textContent = getInitials(displayName);
+    callerAvatar.innerHTML = avatarInner(displayName, pictureForUsername(from));
     incomingCallLabel.textContent = 'Video calling...';
     incomingCallModal.classList.remove('hidden');
   });
@@ -567,3 +613,131 @@ searchInput.addEventListener('input', () => {
     item.style.display = name.includes(q) ? 'flex' : 'none';
   });
 });
+
+// ---------- Settings (Dark Mode + Profile Picture) ----------
+
+const settingsBtn = document.getElementById('settings-btn');
+const settingsModal = document.getElementById('settings-modal');
+const closeSettingsBtn = document.getElementById('close-settings-btn');
+const settingsAvatar = document.getElementById('settings-avatar');
+const profilePhotoInput = document.getElementById('profile-photo-input');
+const choosePhotoBtn = document.getElementById('choose-photo-btn');
+const removePhotoBtn = document.getElementById('remove-photo-btn');
+const settingsDisplayName = document.getElementById('settings-displayname');
+const saveNameBtn = document.getElementById('save-name-btn');
+const darkModeToggle = document.getElementById('dark-mode-toggle');
+const settingsStatus = document.getElementById('settings-status');
+
+darkModeToggle.checked = document.documentElement.classList.contains('dark-mode');
+
+settingsBtn.addEventListener('click', () => {
+  settingsDisplayName.value = myUsername;
+  settingsAvatar.innerHTML = avatarInner(myUsername, myProfilePicture);
+  settingsStatus.classList.add('hidden');
+  settingsModal.classList.remove('hidden');
+});
+
+closeSettingsBtn.addEventListener('click', () => settingsModal.classList.add('hidden'));
+
+darkModeToggle.addEventListener('change', () => {
+  document.documentElement.classList.toggle('dark-mode', darkModeToggle.checked);
+  localStorage.setItem('umpat_dark_mode', darkModeToggle.checked ? 'true' : 'false');
+});
+
+function showSettingsStatus(msg, isError = true) {
+  settingsStatus.textContent = msg;
+  settingsStatus.style.color = isError ? 'var(--danger-red)' : 'var(--online-green)';
+  settingsStatus.classList.remove('hidden');
+}
+
+choosePhotoBtn.addEventListener('click', () => profilePhotoInput.click());
+
+profilePhotoInput.addEventListener('change', async () => {
+  const file = profilePhotoInput.files && profilePhotoInput.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) {
+    showSettingsStatus('Larawan lang ang puwede.');
+    return;
+  }
+  try {
+    const resized = await resizeImageToDataUrl(file, 320, 0.75);
+    settingsAvatar.innerHTML = avatarInner(myUsername, resized);
+    const data = await apiFetch('/api/profile', {
+      method: 'POST',
+      body: JSON.stringify({ profilePicture: resized }),
+    });
+    myProfilePicture = data.profilePicture || '';
+    myAvatar.innerHTML = avatarInner(myUsername, myProfilePicture);
+    showSettingsStatus('Na-update ang larawan!', false);
+  } catch (err) {
+    showSettingsStatus(err.message);
+  }
+  profilePhotoInput.value = '';
+});
+
+removePhotoBtn.addEventListener('click', async () => {
+  try {
+    const data = await apiFetch('/api/profile', {
+      method: 'POST',
+      body: JSON.stringify({ profilePicture: '' }),
+    });
+    myProfilePicture = '';
+    settingsAvatar.innerHTML = avatarInner(myUsername, '');
+    myAvatar.innerHTML = avatarInner(myUsername, '');
+    showSettingsStatus('Naalis ang larawan.', false);
+  } catch (err) {
+    showSettingsStatus(err.message);
+  }
+});
+
+saveNameBtn.addEventListener('click', async () => {
+  const newName = settingsDisplayName.value.trim();
+  if (newName.length < 2) {
+    showSettingsStatus('Kailangan ng hindi bababa sa 2 letra.');
+    return;
+  }
+  try {
+    const data = await apiFetch('/api/profile', {
+      method: 'POST',
+      body: JSON.stringify({ displayName: newName }),
+    });
+    myUsername = data.displayName;
+    localStorage.setItem('umpat_username', myUsername);
+    myNameLabel.textContent = myUsername;
+    myAvatar.innerHTML = avatarInner(myUsername, myProfilePicture);
+    showSettingsStatus('Na-save ang pangalan!', false);
+  } catch (err) {
+    showSettingsStatus(err.message);
+  }
+});
+
+// Ina-resize/kino-compress ang larawan gamit ang canvas bago i-upload,
+// para maliit lang ang file size (mas mabilis mag-load sa mobile data).
+function resizeImageToDataUrl(file, maxSize, quality) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Hindi mabasa ang file.'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Hindi mabasa ang larawan.'));
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > height && width > maxSize) {
+          height = Math.round((height * maxSize) / width);
+          width = maxSize;
+        } else if (height > maxSize) {
+          width = Math.round((width * maxSize) / height);
+          height = maxSize;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}

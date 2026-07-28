@@ -13,6 +13,59 @@
   --danger-red: #e41e3f;
 }
 
+html.dark-mode {
+  --bg-app: #18191a;
+  --bg-white: #242526;
+  --text-dark: #e4e6eb;
+  --text-gray: #b0b3b8;
+  --border-light: #3a3b3c;
+  --bubble-theirs: #3a3b3c;
+}
+
+html.dark-mode body {
+  background: var(--bg-app);
+}
+
+/* ============ In-app Browser Warning Banner ============ */
+
+.webview-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  background: #fff3cd;
+  color: #664d03;
+  padding: 10px 14px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.webview-banner span {
+  flex: 1;
+}
+
+.webview-banner button {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 14px;
+  background: #664d03;
+  color: white;
+  font-weight: 600;
+}
+
+.webview-banner #dismiss-banner-btn {
+  background: transparent;
+  color: #664d03;
+  padding: 4px 8px;
+  font-size: 16px;
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -309,6 +362,13 @@ input {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .avatar-sm {
@@ -550,6 +610,140 @@ input {
 .call-btn.accept { background: var(--online-green); }
 
 .call-btn:hover { filter: brightness(1.08); }
+
+/* ============ Settings Modal ============ */
+
+.settings-card {
+  background: var(--bg-white);
+  color: var(--text-dark);
+  border-radius: 18px;
+  padding: 24px 24px 28px;
+  width: 320px;
+  max-width: 90vw;
+  animation: pop-in 0.18s ease-out;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.settings-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.settings-section {
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.settings-profile .avatar-lg {
+  margin-bottom: 12px;
+}
+
+.settings-link-btn {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  border-radius: 16px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--umpat-blue);
+  background: var(--bg-app);
+  margin-top: 6px;
+}
+
+.settings-link-btn:hover { background: var(--border-light); }
+
+.settings-link-danger { color: var(--danger-red); }
+
+.settings-label {
+  display: block;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-gray);
+  margin-bottom: 6px;
+}
+
+.settings-section input[type="text"] {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--border-light);
+  background: var(--bg-app);
+  color: var(--text-dark);
+  border-radius: 16px;
+  font-size: 14px;
+  outline: none;
+  margin-bottom: 8px;
+}
+
+.settings-save-btn {
+  width: 100%;
+  padding: 9px;
+  border-radius: 16px;
+  background: var(--umpat-blue);
+  color: white;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.settings-save-btn:hover { background: var(--umpat-blue-dark); }
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+}
+
+/* Toggle switch */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 46px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch .slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: var(--border-light);
+  border-radius: 26px;
+  transition: 0.2s;
+}
+
+.switch .slider::before {
+  content: "";
+  position: absolute;
+  height: 20px;
+  width: 20px;
+  left: 3px;
+  bottom: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.switch input:checked + .slider {
+  background: var(--umpat-blue);
+}
+
+.switch input:checked + .slider::before {
+  transform: translateX(20px);
+}
 
 /* ============ Video Call Overlay ============ */
 
