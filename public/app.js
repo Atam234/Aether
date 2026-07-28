@@ -60,7 +60,10 @@ if (localStorage.getItem('umpat_dark_mode') === 'true') {
   });
 })();
 
-const ICE_SERVERS = {
+// STUN muna bilang default/fallback — ia-upgrade ito ng TURN server (kung
+// naka-configure sa Render) pagkatapos mag-login, para reliable pa rin sa
+// mobile data at ibang mahigpit na network.
+let ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
@@ -257,10 +260,11 @@ let myUsernameKey = '';
 
 async function loadContactsAndHistory() {
   try {
-    const [users, last, me] = await Promise.all([
+    const [users, last, me, iceData] = await Promise.all([
       apiFetch('/api/users'),
       apiFetch('/api/last-messages'),
       apiFetch('/api/me'),
+      apiFetch('/api/ice-servers').catch(() => null),
     ]);
     registeredUsers = users; // [{username, displayName, profilePicture}]
     Object.assign(lastMessages, last);
@@ -270,6 +274,9 @@ async function loadContactsAndHistory() {
     myUsernameKey = decodeJwtUsername(localStorage.getItem('umpat_token'));
     myProfilePicture = me.profilePicture || '';
     myAvatar.innerHTML = avatarInner(myUsername, myProfilePicture);
+    if (iceData && Array.isArray(iceData.iceServers) && iceData.iceServers.length > 0) {
+      ICE_SERVERS = { iceServers: iceData.iceServers };
+    }
     renderContacts();
   } catch (err) {
     showToast('Hindi makuha ang listahan ng contacts: ' + err.message, 5000);
