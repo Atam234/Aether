@@ -26,6 +26,10 @@ html.dark-mode body {
   background: var(--bg-app);
 }
 
+html.dark-mode .contact-item.active {
+  background: rgba(0, 132, 255, 0.18);
+}
+
 /* ============ In-app Browser Warning Banner ============ */
 
 .webview-banner {
@@ -204,6 +208,7 @@ input {
   height: 100vh;
   height: 100dvh;
   display: flex;
+  position: relative;
 }
 
 /* ---- Sidebar ---- */
@@ -276,10 +281,15 @@ input {
   padding: 8px;
   border-radius: 10px;
   cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
 }
 
 .contact-item:hover {
   background: var(--bg-app);
+}
+
+.contact-item:active {
+  transform: scale(0.98);
 }
 
 .contact-item.active {
@@ -309,6 +319,41 @@ input {
   align-items: center;
   padding: 18px 0;
   gap: 14px;
+  overflow: hidden;
+  transition: width 0.25s ease, min-width 0.25s ease, padding 0.25s ease, opacity 0.2s ease;
+}
+
+.nav-rail.collapsed {
+  width: 0;
+  min-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  opacity: 0;
+}
+
+.nav-rail-toggle {
+  position: absolute;
+  top: 14px;
+  left: 10px;
+  z-index: 40;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--bg-white);
+  color: var(--text-dark);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.nav-rail-toggle:hover {
+  background: var(--bg-app);
+}
+
+.nav-rail-toggle:active {
+  transform: scale(0.92);
 }
 
 .nav-rail-logo {
@@ -320,6 +365,7 @@ input {
   padding: 7px 6px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.16);
+  white-space: nowrap;
 }
 
 .nav-rail-spacer {
@@ -329,11 +375,18 @@ input {
 .nav-rail-avatar {
   cursor: pointer;
   border: 2px solid rgba(255, 255, 255, 0.65);
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.nav-rail-avatar:hover {
+  transform: scale(1.06);
 }
 
 .nav-rail-btn {
   width: 40px;
   height: 40px;
+  min-width: 40px;
   border-radius: 50%;
   color: white;
   font-size: 18px;
@@ -341,10 +394,15 @@ input {
   align-items: center;
   justify-content: center;
   background: rgba(255, 255, 255, 0.14);
+  transition: background 0.15s ease, transform 0.1s ease;
 }
 
 .nav-rail-btn:hover {
   background: rgba(255, 255, 255, 0.28);
+}
+
+.nav-rail-btn:active {
+  transform: scale(0.92);
 }
 
 .contact-preview {
@@ -417,6 +475,16 @@ input {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  animation: fade-slide-in 0.2s ease-out;
+}
+
+@keyframes fade-slide-in {
+  from { opacity: 0; transform: translateX(10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.sidebar {
+  animation: fade-slide-in 0.2s ease-out;
 }
 
 .no-chat-selected {
@@ -505,6 +573,12 @@ input {
 .message-row {
   display: flex;
   width: 100%;
+  animation: message-in 0.18s ease-out;
+}
+
+@keyframes message-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .message-row.mine { justify-content: flex-end; }
@@ -518,6 +592,7 @@ input {
   line-height: 1.35;
   word-wrap: break-word;
   white-space: pre-wrap;
+  transition: background 0.15s ease;
 }
 
 .message-row.mine .message-bubble {

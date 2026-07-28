@@ -46,6 +46,20 @@ if (localStorage.getItem('umpat_dark_mode') === 'true') {
   dismissBtn.addEventListener('click', () => banner.classList.add('hidden'));
 })();
 
+// Toggle button para itago/ipakita ang Navigation Rail (para hindi nakaka-distract)
+(function setupNavRailToggle() {
+  const navRail = document.getElementById('nav-rail');
+  const toggleBtn = document.getElementById('nav-rail-toggle');
+  if (!navRail || !toggleBtn) return;
+  if (localStorage.getItem('umpat_nav_collapsed') === 'true') {
+    navRail.classList.add('collapsed');
+  }
+  toggleBtn.addEventListener('click', () => {
+    navRail.classList.toggle('collapsed');
+    localStorage.setItem('umpat_nav_collapsed', navRail.classList.contains('collapsed') ? 'true' : 'false');
+  });
+})();
+
 const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
