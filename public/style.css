@@ -298,38 +298,53 @@ input {
   text-overflow: ellipsis;
 }
 
-.sidebar-footer {
+/* ============ Navigation Rail ============ */
+
+.nav-rail {
+  width: 68px;
+  min-width: 68px;
+  background: var(--umpat-blue);
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--border-light);
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--text-gray);
+  padding: 18px 0;
+  gap: 14px;
 }
 
-.sidebar-footer span {
+.nav-rail-logo {
+  color: white;
+  font-weight: 800;
+  font-size: 12.5px;
+  letter-spacing: 0.4px;
+  text-align: center;
+  padding: 7px 6px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.nav-rail-spacer {
   flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.logout-btn {
-  width: 30px;
-  height: 30px;
+.nav-rail-avatar {
+  cursor: pointer;
+  border: 2px solid rgba(255, 255, 255, 0.65);
+}
+
+.nav-rail-btn {
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
-  color: var(--text-gray);
-  font-size: 15px;
+  color: white;
+  font-size: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: rgba(255, 255, 255, 0.14);
 }
 
-.logout-btn:hover {
-  background: var(--bg-app);
-  color: var(--danger-red);
+.nav-rail-btn:hover {
+  background: rgba(255, 255, 255, 0.28);
 }
 
 .contact-preview {
@@ -845,7 +860,7 @@ input {
 
 @media (max-width: 760px) {
   .sidebar {
-    width: 100%;
+    width: calc(100% - 68px);
   }
   .app.chat-open .sidebar {
     display: none;

@@ -630,12 +630,15 @@ const settingsStatus = document.getElementById('settings-status');
 
 darkModeToggle.checked = document.documentElement.classList.contains('dark-mode');
 
-settingsBtn.addEventListener('click', () => {
+function openSettings() {
   settingsDisplayName.value = myUsername;
   settingsAvatar.innerHTML = avatarInner(myUsername, myProfilePicture);
   settingsStatus.classList.add('hidden');
   settingsModal.classList.remove('hidden');
-});
+}
+
+settingsBtn.addEventListener('click', openSettings);
+myAvatar.addEventListener('click', openSettings);
 
 closeSettingsBtn.addEventListener('click', () => settingsModal.classList.add('hidden'));
 
