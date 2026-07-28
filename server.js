@@ -17,7 +17,7 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'umpat-dev-secret-PALITAN-MO-ITO-SA-RENDER';
 const MONGODB_URI = process.env.MONGODB_URI;
 
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 
 // --- Piliin kung HTTP o HTTPS gagamitin (tulad ng dati) ---
 const certPath = path.join(__dirname, 'cert.pem');
@@ -139,9 +139,48 @@ app.get('/api/users', authMiddleware, async (req, res) => {
   if (!dbReady(res)) return;
   const users = await usersCollection
     .find({ username: { $ne: req.username } })
-    .project({ username: 1, displayName: 1, _id: 0 })
+    .project({ username: 1, displayName: 1, profilePicture: 1, _id: 0 })
     .toArray();
   res.json(users);
+});
+
+app.get('/api/me', authMiddleware, async (req, res) => {
+  if (!dbReady(res)) return;
+  const user = await usersCollection.findOne(
+    { username: req.username },
+    { projection: { username: 1, displayName: 1, profilePicture: 1, _id: 0 } }
+  );
+  if (!user) return res.status(404).json({ error: 'Hindi mahanap ang account.' });
+  res.json(user);
+});
+
+app.post('/api/profile', authMiddleware, async (req, res) => {
+  if (!dbReady(res)) return;
+  try {
+    const { displayName, profilePicture } = req.body || {};
+    const update = {};
+    if (typeof displayName === 'string' && displayName.trim().length >= 2) {
+      update.displayName = displayName.trim().slice(0, 24);
+    }
+    if (typeof profilePicture === 'string') {
+      if (profilePicture.length > 800000) {
+        return res.status(400).json({ error: 'Masyadong malaki ang larawan. Subukan ng ibang picture.' });
+      }
+      update.profilePicture = profilePicture; // pwedeng '' para i-clear/tanggalin
+    }
+    if (Object.keys(update).length === 0) {
+      return res.status(400).json({ error: 'Walang binago.' });
+    }
+    await usersCollection.updateOne({ username: req.username }, { $set: update });
+    const user = await usersCollection.findOne(
+      { username: req.username },
+      { projection: { username: 1, displayName: 1, profilePicture: 1, _id: 0 } }
+    );
+    res.json(user);
+  } catch (err) {
+    console.error('Profile update error:', err.message);
+    res.status(500).json({ error: 'May error sa server.' });
+  }
 });
 
 app.get('/api/last-messages', authMiddleware, async (req, res) => {
