@@ -19,6 +19,16 @@ const MONGODB_URI = process.env.MONGODB_URI;
 
 app.use(express.json({ limit: '2mb' }));
 
+// CORS: kailangan ito para makatawag ang APK version ng app (na ibang
+// "origin" na, hal. capacitor://localhost) sa /api/ endpoints dito sa Render.
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
 // --- Piliin kung HTTP o HTTPS gagamitin (tulad ng dati) ---
 const certPath = path.join(__dirname, 'cert.pem');
 const keyPath = path.join(__dirname, 'key.pem');
