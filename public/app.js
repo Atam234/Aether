@@ -497,6 +497,7 @@ async function startCall(withVideo) {
     return;
   }
   localVideo.srcObject = localStream;
+  attemptPlay(localVideo);
   localVideo.classList.toggle('hidden', !withVideo);
   inCallWith = currentChatUserId;
   showCallOverlay('Tumatawag...');
@@ -521,6 +522,7 @@ function createPeerConnection(targetUsername) {
 
   pc.ontrack = (event) => {
     remoteVideo.srcObject = event.streams[0];
+    attemptPlay(remoteVideo);
     callStatus.textContent = 'Nakakonekta';
   };
 
@@ -531,6 +533,24 @@ function createPeerConnection(targetUsername) {
   };
 
   return pc;
+}
+
+// Ilang mobile browser (lalo na sa Chrome Android) ay nano-block ng autoplay
+// kahit may "autoplay" attribute na — kailangan pa ng explicit na .play() call.
+// Kung na-block pa rin, maghihintay ng tap kahit saan sa screen bago ulit subukan.
+function attemptPlay(videoEl) {
+  const playPromise = videoEl.play();
+  if (playPromise !== undefined) {
+    playPromise.catch((err) => {
+      console.warn('Na-block ang autoplay, maghihintay ng tap:', err);
+      showToast('I-tap ang screen para mag-play ang video/audio.', 4000);
+      const resumeOnTap = () => {
+        videoEl.play().catch(() => {});
+      };
+      document.addEventListener('click', resumeOnTap, { once: true });
+      document.addEventListener('touchend', resumeOnTap, { once: true });
+    });
+  }
 }
 
 acceptCallBtn.addEventListener('click', async () => {
@@ -552,6 +572,7 @@ acceptCallBtn.addEventListener('click', async () => {
     return;
   }
   localVideo.srcObject = localStream;
+  attemptPlay(localVideo);
   localVideo.classList.remove('hidden');
   inCallWith = pendingCallFrom;
   showCallOverlay('Kumokonekta...');
