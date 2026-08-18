@@ -1,14 +1,25 @@
 # UMPAT Communication
 
-Video call + chat web app, Messenger ang itsura, Termux ang server. Gumagana sa
-loob ng LAN/WiFi at pwede ring i-expose sa Internet.
+Video call + chat web app, Messenger ang itsura. Dalawang paraan itong
+mapapatakbo:
+
+- **Online mode** — naka-deploy sa Render + MongoDB Atlas, may permanenteng
+  account (username/password) at naka-save ang chat history kahit saan-saan
+  ka. Ito ang bersyong online sa `https://aether-y4qp.onrender.com`.
+- **Guest/LAN mode** — patakbuhin sa Termux sa loob mismo ng bahay/opisina,
+  **walang kailangang internet o MongoDB**. Basta pangalan lang ang itatype,
+  walang password, walang permanenteng account — pero gumagana pa rin ang
+  chat at video call habang magkasabay online sa parehong WiFi/LAN.
+  **Awtomatiko itong ginagawa ng server** kapag walang `MONGODB_URI` na
+  environment variable na naka-set — walang extra config na kailangan.
 
 ## Paano gumagana
 
-- **Server**: Node.js (Express + Socket.io) — ito ang tatakbo sa Termux. Ginagawa
-  lang nito ang "signaling" (pag-uugnay ng dalawang user) at ang text chat.
+- **Server**: Node.js (Express + Socket.io) — ito ang tatakbo sa Termux o sa
+  Render. Ginagawa lang nito ang "signaling" (pag-uugnay ng dalawang user) at
+  ang text chat.
 - **Video/Audio**: WebRTC — direktang kumokonekta ang dalawang browser sa isa't
-  isa (peer-to-peer), kaya hindi dumadaan ang video/audio sa Termux server mo.
+  isa (peer-to-peer), kaya hindi dumadaan ang video/audio sa server mismo.
   Ang server, tulay lang para magkakilala ang dalawang device.
 
 ---
