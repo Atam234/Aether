@@ -1,11 +1,12 @@
 // ============ UMPAT Communication — Client Logic (v2: permanent accounts) ============
 
 let socket = null;
+let appMode = 'online'; // 'online' (may database) o 'guest' (LAN mode, walang database)
 let myUsername = ''; // display name
 let myProfilePicture = '';
 let currentChatUserId = null; // username (lowercase key) ng kausap
 let currentChatUserName = null; // display name ng kausap
-let registeredUsers = []; // lahat ng naka-register na users (maliban sa sarili)
+let registeredUsers = []; // lahat ng naka-register (online mode) o kasalukuyang online (guest mode)
 let onlineUsernames = new Set();
 let localStream = null;
 let peerConnection = null;
@@ -152,6 +153,11 @@ authPassword.addEventListener('keypress', (e) => {
 });
 
 async function submitAuth() {
+  if (appMode === 'guest') {
+    submitGuestJoin();
+    return;
+  }
+
   const username = authUsername.value.trim();
   const password = authPassword.value;
   authError.classList.add('hidden');
@@ -183,13 +189,45 @@ async function submitAuth() {
   }
 }
 
-// ---------- Auto-login kung may naka-save nang session ----------
+function submitGuestJoin() {
+  const name = authUsername.value.trim();
+  authError.classList.add('hidden');
+  if (!name) {
+    authError.textContent = 'Maglagay ng pangalan.';
+    authError.classList.remove('hidden');
+    return;
+  }
+  localStorage.setItem('umpat_guest_name', name);
+  enterApp(null, name);
+}
 
-(function tryAutoLogin() {
-  const token = localStorage.getItem('umpat_token');
-  const username = localStorage.getItem('umpat_username');
-  if (token && username) {
-    enterApp(token, username);
+// ---------- Auto-login kung may naka-save nang session (online mode lang) ----------
+
+function setupJoinScreenForMode() {
+  if (appMode !== 'guest') return;
+  document.getElementById('guest-mode-notice').classList.remove('hidden');
+  document.getElementById('auth-tabs').classList.add('hidden');
+  authPassword.classList.add('hidden');
+  authSubmitBtn.textContent = 'Sumali';
+  authUsername.placeholder = 'Pangalan mo...';
+  const savedGuestName = localStorage.getItem('umpat_guest_name');
+  if (savedGuestName) authUsername.value = savedGuestName;
+}
+
+(async function detectModeThenInit() {
+  try {
+    const res = await fetch('/api/mode');
+    const data = await res.json();
+    appMode = data.hasDatabase ? 'online' : 'guest';
+  } catch (err) {
+    appMode = 'online'; // default kung hindi ma-check, i-assume online
+  }
+  setupJoinScreenForMode();
+
+  if (appMode === 'online') {
+    const token = localStorage.getItem('umpat_token');
+    const username = localStorage.getItem('umpat_username');
+    if (token && username) enterApp(token, username);
   }
 })();
 
@@ -200,7 +238,14 @@ function enterApp(token, username) {
   myAvatar.innerHTML = avatarInner(username, myProfilePicture);
   myNameLabel.textContent = username;
 
-  socket = io({ auth: { token } });
+  if (appMode === 'guest') {
+    myUsernameKey = username.toLowerCase().slice(0, 24);
+    socket = io({ auth: { guestName: username } });
+    document.getElementById('settings-profile-section').classList.add('hidden');
+    document.getElementById('settings-displayname-section').classList.add('hidden');
+  } else {
+    socket = io({ auth: { token } });
+  }
 
   socket.on('connect_error', (err) => {
     showToast('Hindi ma-verify ang session: ' + err.message, 5000);
@@ -209,8 +254,11 @@ function enterApp(token, username) {
     }
   });
 
-  socket.on('online-users', (usernames) => {
-    onlineUsernames = new Set(usernames);
+  socket.on('online-users', (list) => {
+    onlineUsernames = new Set(list.map((u) => u.username));
+    if (appMode === 'guest') {
+      registeredUsers = list.filter((u) => u.username !== myUsernameKey);
+    }
     renderContacts();
   });
 
@@ -259,6 +307,13 @@ function getUsernameKey() {
 let myUsernameKey = '';
 
 async function loadContactsAndHistory() {
+  if (appMode === 'guest') {
+    // Sa Guest/LAN mode, ang 'online-users' socket broadcast na mismo ang
+    // nagpo-populate ng contacts list — walang database na kukunan pa ng
+    // listahan, huling mensahe, o TURN credentials.
+    renderContacts();
+    return;
+  }
   try {
     const [users, last, me, iceData] = await Promise.all([
       apiFetch('/api/users'),
@@ -379,8 +434,13 @@ function openChat(usernameKey, displayName) {
   renderContacts();
 
   if (!chatHistory[usernameKey]) {
-    messagesContainer.innerHTML = '<div class="no-contacts">Kinukuha ang mga lumang mensahe...</div>';
-    socket.emit('get-history', { withUser: usernameKey });
+    if (appMode === 'guest') {
+      chatHistory[usernameKey] = [];
+      renderMessages();
+    } else {
+      messagesContainer.innerHTML = '<div class="no-contacts">Kinukuha ang mga lumang mensahe...</div>';
+      socket.emit('get-history', { withUser: usernameKey });
+    }
   } else {
     renderMessages();
   }

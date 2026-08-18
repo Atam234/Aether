@@ -21,7 +21,8 @@
     <div class="join-card">
       <div class="join-logo">U</div>
       <h1>UMPAT Communication</h1>
-      <div class="auth-tabs">
+      <p id="guest-mode-notice" class="join-sub hidden">🔌 LAN Mode — walang permanenteng account, basta pangalan lang.</p>
+      <div id="auth-tabs" class="auth-tabs">
         <button id="tab-login" class="auth-tab active" type="button">Mag-login</button>
         <button id="tab-signup" class="auth-tab" type="button">Gumawa ng Account</button>
       </div>
@@ -161,14 +162,14 @@
         </button>
       </div>
 
-      <div class="settings-section settings-profile">
+      <div class="settings-section settings-profile" id="settings-profile-section">
         <div class="avatar avatar-lg" id="settings-avatar"></div>
         <input type="file" id="profile-photo-input" accept="image/*" class="hidden">
         <button id="choose-photo-btn" class="settings-link-btn" type="button">Palitan ang Larawan</button>
         <button id="remove-photo-btn" class="settings-link-btn settings-link-danger" type="button">Alisin ang Larawan</button>
       </div>
 
-      <div class="settings-section">
+      <div class="settings-section" id="settings-displayname-section">
         <label class="settings-label">Display Name</label>
         <input type="text" id="settings-displayname" maxlength="24">
         <button id="save-name-btn" class="settings-save-btn" type="button">I-save</button>
