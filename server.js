@@ -19,16 +19,6 @@ const MONGODB_URI = process.env.MONGODB_URI;
 
 app.use(express.json({ limit: '2mb' }));
 
-// CORS: kailangan ito para makatawag ang APK version ng app (na ibang
-// "origin" na, hal. capacitor://localhost) sa /api/ endpoints dito sa Render.
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  if (req.method === 'OPTIONS') return res.sendStatus(204);
-  next();
-});
-
 // --- Piliin kung HTTP o HTTPS gagamitin (tulad ng dati) ---
 const certPath = path.join(__dirname, 'cert.pem');
 const keyPath = path.join(__dirname, 'key.pem');
@@ -83,6 +73,13 @@ function dbReady(res) {
   }
   return true;
 }
+
+// Pampublikong endpoint para malaman ng client kung full-account mode ba
+// tayo (may database, online/Render) o Guest/LAN mode (walang database,
+// hal. tumatakbo lang via Termux sa loob ng LAN nang walang MongoDB setup).
+app.get('/api/mode', (req, res) => {
+  res.json({ hasDatabase: !!usersCollection });
+});
 
 // ============ Auth REST endpoints ============
 
@@ -240,24 +237,46 @@ app.get('/api/last-messages', authMiddleware, async (req, res) => {
   res.json(lastByContact);
 });
 
-// ============ Socket.io (auth via JWT, hindi na basta-basta username) ============
+// ============ Socket.io (JWT kapag may account, o guest name kapag LAN mode) ============
 
 io.use((socket, next) => {
-  try {
-    const token = socket.handshake.auth && socket.handshake.auth.token;
-    if (!token) return next(new Error('Kailangan mag-login.'));
-    socket.username = jwt.verify(token, JWT_SECRET).username;
-    next();
-  } catch (err) {
-    next(new Error('Invalid o expired session.'));
+  const token = socket.handshake.auth && socket.handshake.auth.token;
+  const guestName = socket.handshake.auth && socket.handshake.auth.guestName;
+
+  if (token) {
+    try {
+      socket.username = jwt.verify(token, JWT_SECRET).username;
+      socket.displayName = socket.username;
+      socket.isGuest = false;
+      return next();
+    } catch (err) {
+      return next(new Error('Invalid o expired session.'));
+    }
   }
+
+  // Guest/LAN mode — walang database, basta pangalan lang, walang password.
+  const cleanName = String(guestName || '').trim();
+  if (cleanName.length >= 1) {
+    socket.username = cleanName.toLowerCase().slice(0, 24);
+    socket.displayName = cleanName.slice(0, 24);
+    socket.isGuest = true;
+    return next();
+  }
+
+  next(new Error('Kailangan mag-login o maglagay ng pangalan.'));
 });
 
 // username -> Set ng socket.id (sakaling maraming tabs/devices)
 const socketsByUsername = new Map();
+// username -> displayName (kailangan lalo na sa Guest/LAN mode na walang database)
+const displayNameByUsername = new Map();
 
 function broadcastOnlineUsers() {
-  io.emit('online-users', Array.from(socketsByUsername.keys()));
+  const list = Array.from(socketsByUsername.keys()).map((u) => ({
+    username: u,
+    displayName: displayNameByUsername.get(u) || u,
+  }));
+  io.emit('online-users', list);
 }
 
 function sendToUser(username, event, payload) {
@@ -271,6 +290,7 @@ io.on('connection', (socket) => {
 
   if (!socketsByUsername.has(username)) socketsByUsername.set(username, new Set());
   socketsByUsername.get(username).add(socket.id);
+  displayNameByUsername.set(username, socket.displayName || username);
   broadcastOnlineUsers();
 
   // --- Chat history ---
@@ -325,7 +345,10 @@ io.on('connection', (socket) => {
     const set = socketsByUsername.get(username);
     if (set) {
       set.delete(socket.id);
-      if (set.size === 0) socketsByUsername.delete(username);
+      if (set.size === 0) {
+        socketsByUsername.delete(username);
+        displayNameByUsername.delete(username);
+      }
     }
     broadcastOnlineUsers();
     console.log(`[-] Umalis: ${username}`);
