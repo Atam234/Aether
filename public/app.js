@@ -18,7 +18,8 @@ const chatHistory = {}; // username -> array of {message, timestamp, mine}
 const lastMessages = {}; // username -> {message, timestamp, mine}
 
 // Dark mode agad i-apply bago mag-render ng kahit ano, para walang "flash"
-if (localStorage.getItem('umpat_dark_mode') === 'true') {
+// Default: dark navy (LAN-NET style) maliban kung pinatay sa Settings
+if (localStorage.getItem('umpat_dark_mode') !== 'false') {
   document.documentElement.classList.add('dark-mode');
 }
 
