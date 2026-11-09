@@ -47,8 +47,8 @@ let messagesCollection = null;
 
 async function connectDB() {
   if (!MONGODB_URI) {
-    console.warn('[!] Walang MONGODB_URI na environment variable.');
-    console.warn('[!] Gagana ang app pero HINDI PERMANENTE ang accounts/chat history.');
+    console.warn('[!] No MONGODB_URI environment variable set.');
+    console.warn('[!] The app will run, but accounts/chat history will NOT be saved permanently.');
     return;
   }
   try {
@@ -59,9 +59,9 @@ async function connectDB() {
     messagesCollection = db.collection('messages');
     await usersCollection.createIndex({ username: 1 }, { unique: true });
     await messagesCollection.createIndex({ from: 1, to: 1, timestamp: 1 });
-    console.log('[+] Konektado sa MongoDB Atlas — permanente na ang accounts at chat history.');
+    console.log('[+] Connected to MongoDB Atlas — accounts and chat history are saved permanently.');
   } catch (err) {
-    console.error('[!] Hindi makakonekta sa MongoDB:', err.message);
+    console.error('[!] Could not connect to MongoDB:', err.message);
   }
 }
 connectDB();
@@ -69,7 +69,7 @@ connectDB();
 function dbReady(res) {
   if (!usersCollection) {
     res.status(503).json({
-      error: 'Hindi pa naka-configure ang database. Basahin ang SETUP-ACCOUNTS-SOP.md.',
+      error: 'The database is not configured yet. See SETUP-ACCOUNTS-SOP.md.',
     });
     return false;
   }
@@ -110,14 +110,14 @@ app.post('/api/register', async (req, res) => {
     const { username, password } = req.body || {};
     if (!username || !password || username.trim().length < 3 || password.length < 4) {
       return res.status(400).json({
-        error: 'Kailangan ng username (min. 3 letra) at password (min. 4 letra).',
+        error: 'Username (min. 3 characters) and password (min. 4 characters) are required.',
       });
     }
     const cleanUsername = username.trim();
     const key = cleanUsername.toLowerCase();
     const existing = await usersCollection.findOne({ username: key });
     if (existing) {
-      return res.status(400).json({ error: 'Kuha na ang username na iyan. Pumili ng iba.' });
+      return res.status(400).json({ error: 'That username is already taken. Please choose another.' });
     }
     const passwordHash = await bcrypt.hash(password, 10);
     await usersCollection.insertOne({
@@ -130,7 +130,7 @@ app.post('/api/register', async (req, res) => {
     res.json({ token, username: cleanUsername });
   } catch (err) {
     console.error('Register error:', err.message);
-    res.status(500).json({ error: 'May error sa server. Subukan ulit.' });
+    res.status(500).json({ error: 'Server error. Please try again.' });
   }
 });
 
@@ -140,26 +140,26 @@ app.post('/api/login', async (req, res) => {
     const { username, password } = req.body || {};
     const key = String(username || '').trim().toLowerCase();
     const user = await usersCollection.findOne({ username: key });
-    if (!user) return res.status(400).json({ error: 'Walang account na may ganitong username.' });
+    if (!user) return res.status(400).json({ error: 'No account found with that username.' });
     const match = await bcrypt.compare(password || '', user.passwordHash);
-    if (!match) return res.status(400).json({ error: 'Maling password.' });
+    if (!match) return res.status(400).json({ error: 'Incorrect password.' });
     const token = jwt.sign({ username: user.username }, JWT_SECRET, { expiresIn: '365d' });
     res.json({ token, username: user.displayName });
   } catch (err) {
     console.error('Login error:', err.message);
-    res.status(500).json({ error: 'May error sa server. Subukan ulit.' });
+    res.status(500).json({ error: 'Server error. Please try again.' });
   }
 });
 
 function authMiddleware(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.replace('Bearer ', '');
-  if (!token) return res.status(401).json({ error: 'Kailangan mag-login.' });
+  if (!token) return res.status(401).json({ error: 'Please log in.' });
   try {
     req.username = jwt.verify(token, JWT_SECRET).username;
     next();
   } catch (err) {
-    res.status(401).json({ error: 'Expired o invalid ang session. Mag-login ulit.' });
+    res.status(401).json({ error: 'Your session is invalid or expired. Please log in again.' });
   }
 }
 
@@ -206,7 +206,7 @@ app.post(
   express.raw({ type: () => true, limit: MAX_UPLOAD_BYTES }),
   (req, res) => {
     if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
-      return res.status(400).json({ error: 'Walang laman ang file.' });
+      return res.status(400).json({ error: 'The file is empty.' });
     }
     let original = 'file';
     try {
@@ -217,7 +217,7 @@ app.post(
     fs.writeFile(path.join(UPLOAD_DIR, stored), req.body, (err) => {
       if (err) {
         console.error('Upload error:', err.message);
-        return res.status(500).json({ error: 'Hindi ma-save ang file.' });
+        return res.status(500).json({ error: 'Could not save the file.' });
       }
       res.json({
         url: '/uploads/' + encodeURIComponent(stored),
@@ -232,7 +232,7 @@ app.post(
 // Error kapag sobrang laki ng file
 app.use((err, req, res, next) => {
   if (err && err.type === 'entity.too.large') {
-    return res.status(413).json({ error: 'Masyadong malaki ang file (max 25 MB).' });
+    return res.status(413).json({ error: 'File is too large (max 25 MB).' });
   }
   next(err);
 });
@@ -290,7 +290,7 @@ app.get('/api/me', authMiddleware, async (req, res) => {
     { username: req.username },
     { projection: { username: 1, displayName: 1, profilePicture: 1, _id: 0 } }
   );
-  if (!user) return res.status(404).json({ error: 'Hindi mahanap ang account.' });
+  if (!user) return res.status(404).json({ error: 'Account not found.' });
   res.json(user);
 });
 
@@ -304,12 +304,12 @@ app.post('/api/profile', authMiddleware, async (req, res) => {
     }
     if (typeof profilePicture === 'string') {
       if (profilePicture.length > 800000) {
-        return res.status(400).json({ error: 'Masyadong malaki ang larawan. Subukan ng ibang picture.' });
+        return res.status(400).json({ error: 'Image is too large. Please try a different picture.' });
       }
       update.profilePicture = profilePicture; // pwedeng '' para i-clear/tanggalin
     }
     if (Object.keys(update).length === 0) {
-      return res.status(400).json({ error: 'Walang binago.' });
+      return res.status(400).json({ error: 'Nothing to update.' });
     }
     await usersCollection.updateOne({ username: req.username }, { $set: update });
     const user = await usersCollection.findOne(
@@ -319,7 +319,7 @@ app.post('/api/profile', authMiddleware, async (req, res) => {
     res.json(user);
   } catch (err) {
     console.error('Profile update error:', err.message);
-    res.status(500).json({ error: 'May error sa server.' });
+    res.status(500).json({ error: 'Server error.' });
   }
 });
 
@@ -358,7 +358,7 @@ io.use((socket, next) => {
       socket.isGuest = false;
       return next();
     } catch (err) {
-      return next(new Error('Invalid o expired session.'));
+      return next(new Error('Invalid or expired session.'));
     }
   }
 
@@ -371,7 +371,7 @@ io.use((socket, next) => {
     return next();
   }
 
-  next(new Error('Kailangan mag-login o maglagay ng pangalan.'));
+  next(new Error('Please log in or enter a name.'));
 });
 
 // username -> Set ng socket.id (sakaling maraming tabs/devices)
@@ -405,7 +405,7 @@ function sendToUser(username, event, payload) {
 
 io.on('connection', (socket) => {
   const username = socket.username;
-  console.log(`[+] Kumonekta: ${username} (${socket.id})`);
+  console.log(`[+] Connected: ${username} (${socket.id})`);
 
   if (!socketsByUsername.has(username)) socketsByUsername.set(username, new Set());
   socketsByUsername.get(username).add(socket.id);
@@ -438,7 +438,7 @@ io.on('connection', (socket) => {
       try {
         await messagesCollection.insertOne(doc);
       } catch (err) {
-        console.error('Error sa pag-save ng mensahe:', err.message);
+        console.error('Error saving message:', err.message);
       }
     }
     sendToUser(to, 'chat-message', doc);
@@ -472,7 +472,7 @@ io.on('connection', (socket) => {
   socket.on('call-join', ({ callId } = {}, ack) => {
     const room = calls.get(callId);
     if (!room) {
-      if (typeof ack === 'function') ack({ error: 'Tapos na ang tawag.' });
+      if (typeof ack === 'function') ack({ error: 'The call has already ended.' });
       return;
     }
     const others = Array.from(room).filter((u) => u !== username);
@@ -509,24 +509,24 @@ io.on('connection', (socket) => {
       }
     }
     broadcastOnlineUsers();
-    console.log(`[-] Umalis: ${username}`);
+    console.log(`[-] Disconnected: ${username}`);
   });
 });
 
 server.listen(PORT, '0.0.0.0', () => {
   const proto = usingHttps ? 'https' : 'http';
   console.log('==================================================');
-  console.log('  UMPAT Communication server - GUMAGANA NA!');
+  console.log('  UMPAT Communication server is RUNNING!');
   console.log('==================================================');
   console.log(`  Protocol : ${proto.toUpperCase()}`);
-  console.log(`  Lokal    : ${proto}://localhost:${PORT}`);
+  console.log(`  Local    : ${proto}://localhost:${PORT}`);
   getLanAddresses().forEach((ip) => {
     console.log(`  LAN      : ${proto}://${ip}:${PORT}`);
   });
-  console.log(`  Database : ${MONGODB_URI ? 'Naka-configure' : 'WALANG MONGODB_URI'}`);
+  console.log(`  Database : ${MONGODB_URI ? 'Configured' : 'NO MONGODB_URI'}`);
   console.log(
     `  TURN     : ${
-      process.env.TURN_USERNAME && process.env.TURN_CREDENTIAL ? 'Naka-configure' : 'WALANG TURN_USERNAME/TURN_CREDENTIAL'
+      process.env.TURN_USERNAME && process.env.TURN_CREDENTIAL ? 'Configured' : 'NO TURN_USERNAME/TURN_CREDENTIAL'
     }`
   );
   console.log('==================================================');

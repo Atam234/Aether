@@ -35,10 +35,10 @@ if (localStorage.getItem('umpat_dark_mode') !== 'false') {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard
         .writeText(url)
-        .then(() => showToast('Na-kopya ang link!'))
-        .catch(() => window.prompt('Kopyahin ang link:', url));
+        .then(() => showToast('Link copied!'))
+        .catch(() => window.prompt('Copy this link:', url));
     } else {
-      window.prompt('Kopyahin ang link:', url);
+      window.prompt('Copy this link:', url);
     }
   });
   dismissBtn.addEventListener('click', () => banner.classList.add('hidden'));
@@ -112,7 +112,7 @@ async function apiFetch(url, options = {}) {
   if (token) headers.Authorization = 'Bearer ' + token;
   const res = await fetch(url, Object.assign({}, options, { headers }));
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'May error na nangyari.');
+  if (!res.ok) throw new Error(data.error || 'Something went wrong.');
   return data;
 }
 
@@ -140,7 +140,7 @@ function switchAuthMode(mode) {
   authMode = mode;
   tabLogin.classList.toggle('active', mode === 'login');
   tabSignup.classList.toggle('active', mode === 'signup');
-  authSubmitBtn.textContent = mode === 'login' ? 'Mag-login' : 'Gumawa ng Account';
+  authSubmitBtn.textContent = mode === 'login' ? 'Log in' : 'Create Account';
   authError.classList.add('hidden');
 }
 
@@ -160,7 +160,7 @@ async function submitAuth() {
   authError.classList.add('hidden');
 
   if (!username || !password) {
-    authError.textContent = 'Punuan ang username at password.';
+    authError.textContent = 'Please enter your username and password.';
     authError.classList.remove('hidden');
     return;
   }
@@ -190,7 +190,7 @@ function submitGuestJoin() {
   const name = authUsername.value.trim();
   authError.classList.add('hidden');
   if (!name) {
-    authError.textContent = 'Maglagay ng pangalan.';
+    authError.textContent = 'Please enter your name.';
     authError.classList.remove('hidden');
     return;
   }
@@ -205,8 +205,8 @@ function setupJoinScreenForMode() {
   document.getElementById('guest-mode-notice').classList.remove('hidden');
   document.getElementById('auth-tabs').classList.add('hidden');
   authPassword.classList.add('hidden');
-  authSubmitBtn.textContent = 'Sumali';
-  authUsername.placeholder = 'Pangalan mo...';
+  authSubmitBtn.textContent = 'Join';
+  authUsername.placeholder = 'Your name...';
   const savedGuestName = localStorage.getItem('umpat_guest_name');
   if (savedGuestName) authUsername.value = savedGuestName;
 }
@@ -245,7 +245,7 @@ function enterApp(token, username) {
   }
 
   socket.on('connect_error', (err) => {
-    showToast('Hindi ma-verify ang session: ' + err.message, 5000);
+    showToast('Could not verify your session: ' + err.message, 5000);
     if (err.message.includes('Invalid') || err.message.includes('expired')) {
       logout();
     }
@@ -272,7 +272,7 @@ function enterApp(token, username) {
     if (contact === currentChatUserId) {
       renderMessages();
     } else if (data.from !== getUsernameKey()) {
-      showToast(`Bagong mensahe mula kay ${nameForUsername(data.from)}`);
+      showToast(`New message from ${nameForUsername(data.from)}`);
       if (navigator.vibrate) navigator.vibrate(120);
     }
     if (data.from !== getUsernameKey()) {
@@ -335,7 +335,7 @@ async function loadContactsAndHistory() {
     }
     renderContacts();
   } catch (err) {
-    showToast('Hindi makuha ang listahan ng contacts: ' + err.message, 5000);
+    showToast('Could not load contacts: ' + err.message, 5000);
   }
 }
 
@@ -366,7 +366,7 @@ function logout() {
 }
 
 document.getElementById('logout-btn').addEventListener('click', () => {
-  if (confirm('Sigurado ka bang gusto mong mag-logout?')) logout();
+  if (confirm('Are you sure you want to log out?')) logout();
 });
 
 // ---------- Contacts List ----------
@@ -375,7 +375,7 @@ const contactsList = document.getElementById('contacts-list');
 
 function renderContacts() {
   if (registeredUsers.length === 0) {
-    contactsList.innerHTML = '<div class="no-contacts">Wala pang ibang naka-register na user. Ipaalam sa kausap mo na gumawa rin ng account.</div>';
+    contactsList.innerHTML = '<div class="no-contacts">No other users yet. Ask the people you want to talk to to create an account too.</div>';
     return;
   }
   const sorted = [...registeredUsers].sort((a, b) => {
@@ -388,7 +388,7 @@ function renderContacts() {
     const isOnline = onlineUsernames.has(user.username);
     const last = lastMessages[user.username];
     const previewText = last
-      ? (last.mine ? 'Ikaw: ' : '') + previewForMessage(last)
+      ? (last.mine ? 'You: ' : '') + previewForMessage(last)
       : isOnline
       ? 'Online'
       : 'Offline';
@@ -439,7 +439,7 @@ function openChat(usernameKey, displayName) {
       chatHistory[usernameKey] = [];
       renderMessages();
     } else {
-      messagesContainer.innerHTML = '<div class="no-contacts">Kinukuha ang mga lumang mensahe...</div>';
+      messagesContainer.innerHTML = '<div class="no-contacts">Loading earlier messages...</div>';
       socket.emit('get-history', { withUser: usernameKey });
     }
   } else {
@@ -471,7 +471,7 @@ function addMessageToHistory(usernameKey, msg) {
 function renderMessages() {
   const msgs = chatHistory[currentChatUserId] || [];
   if (msgs.length === 0) {
-    messagesContainer.innerHTML = '<div class="no-contacts">Wala pang mensahe. Magsimula ng usapan!</div>';
+    messagesContainer.innerHTML = '<div class="no-contacts">No messages yet. Say hello!</div>';
     return;
   }
   messagesContainer.innerHTML = msgs
@@ -530,12 +530,12 @@ function registerSocketCallHandlers() {
     callerAvatar.innerHTML = avatarInner(displayName, pictureForUsername(from));
     const others = incoming.participants.length - 1;
     incomingCallLabel.textContent =
-      (video ? 'Video call' : 'Voice call') + (others > 0 ? ` • kasama ang ${others} pa` : '') + '...';
+      (video ? 'Video call' : 'Voice call') + (others > 0 ? ` • with ${others} other${others > 1 ? 's' : ''}` : '') + '...';
     incomingCallModal.classList.remove('hidden');
     startRinging();
     notifyUser(
       video ? 'Video call' : 'Voice call',
-      `Tumatawag si ${displayName}`,
+      `${displayName} is calling you`,
       'call-' + callId,
       true
     );
@@ -545,7 +545,7 @@ function registerSocketCallHandlers() {
       if (incoming && incoming.callId === callId) {
         socket.emit('call-decline', { to: from, callId, reason: 'no-answer' });
         dismissIncoming();
-        showToast(`Missed call mula kay ${displayName}`);
+        showToast(`Missed call from ${displayName}`);
       }
     }, 45000);
   });
@@ -591,7 +591,7 @@ function registerSocketCallHandlers() {
   socket.on('call-peer-left', ({ callId, username }) => {
     if (!call || call.id !== callId) return;
     removePeer(username);
-    showToast(`Umalis si ${nameForUsername(username)} sa tawag.`);
+    showToast(`${nameForUsername(username)} left the call.`);
     checkCallEmpty();
   });
 
@@ -600,10 +600,10 @@ function registerSocketCallHandlers() {
     call.invited.delete(from);
     const name = nameForUsername(from);
     const msg =
-      reason === 'busy' ? `May ibang kausap si ${name}.`
-      : reason === 'offline' ? `Offline si ${name}.`
-      : reason === 'no-answer' ? `Hindi sumagot si ${name}.`
-      : `Tinanggihan ni ${name} ang tawag.`;
+      reason === 'busy' ? `${name} is on another call.`
+      : reason === 'offline' ? `${name} is offline.`
+      : reason === 'no-answer' ? `${name} didn't answer.`
+      : `${name} declined the call.`;
     showToast(msg);
     checkCallEmpty();
   });
@@ -614,13 +614,13 @@ voiceCallBtn.addEventListener('click', () => startCall(false));
 
 async function getMedia(withVideo) {
   if (!window.isSecureContext) {
-    showToast('Kailangan ng HTTPS para gumana ang camera/mic.', 5000);
+    showToast('HTTPS is required for the camera/mic to work.', 5000);
     return null;
   }
   try {
     return await navigator.mediaDevices.getUserMedia({ video: withVideo, audio: true });
   } catch (err) {
-    showToast('Hindi ma-access ang camera/mic: ' + err.message, 5000);
+    showToast('Could not access the camera/mic: ' + err.message, 5000);
     return null;
   }
 }
@@ -648,7 +648,7 @@ function inviteToCall(username) {
     if (!call) return;
     call.invited.clear();
     if (call.peers.size === 0) {
-      showToast('Walang sumagot.');
+      showToast('No one answered.');
       endCall();
     } else {
       updateCallStatus();
@@ -667,11 +667,11 @@ acceptCallBtn.addEventListener('click', async () => {
   }
   call = { id: inv.callId, video: inv.video, peers: new Map(), invited: new Set(), everConnected: false };
   openCallOverlay(inv.video);
-  callStatus.textContent = 'Kumokonekta...';
+  callStatus.textContent = 'Connecting...';
 
   socket.emit('call-join', { callId: inv.callId }, async (res) => {
     if (!res || res.error) {
-      showToast(res && res.error ? res.error : 'Hindi makasali sa tawag.');
+      showToast(res && res.error ? res.error : 'Could not join the call.');
       endCall();
       return;
     }
@@ -750,7 +750,7 @@ function ensurePeer(username) {
       updateCallStatus();
     } else if (pc.connectionState === 'failed') {
       removePeer(username);
-      showToast(`Naputol ang koneksyon kay ${name}.`);
+      showToast(`Lost connection to ${name}.`);
       checkCallEmpty();
     }
   };
@@ -780,7 +780,7 @@ function removePeer(username) {
 
 function checkCallEmpty() {
   if (call && call.peers.size === 0 && call.invited.size === 0) {
-    if (call.everConnected) showToast('Natapos ang tawag.');
+    if (call.everConnected) showToast('Call ended.');
     endCall();
   }
 }
@@ -795,12 +795,12 @@ function updateCallStatus() {
   const n = call.peers.size;
   const connected = Array.from(call.peers.values()).filter((p) => p.pc.connectionState === 'connected').length;
   if (n === 0) {
-    callStatus.textContent = call.invited.size ? 'Tumatawag...' : 'Naghihintay...';
+    callStatus.textContent = call.invited.size ? 'Calling...' : 'Waiting...';
   } else if (connected === 0) {
-    callStatus.textContent = 'Kumokonekta...';
+    callStatus.textContent = 'Connecting...';
   } else {
-    callStatus.textContent = n === 1 ? 'Nakakonekta' : `Group call • ${n + 1} kalahok`;
-    if (call.invited.size) callStatus.textContent += ` • tumatawag sa ${call.invited.size}`;
+    callStatus.textContent = n === 1 ? 'Connected' : `Group call • ${n + 1} people`;
+    if (call.invited.size) callStatus.textContent += ` • calling ${call.invited.size} more`;
   }
 }
 
@@ -814,7 +814,7 @@ function openCallOverlay(withVideo) {
   videoGrid.innerHTML = '';
   layoutGrid();
   videoCallOverlay.classList.remove('hidden');
-  callStatus.textContent = 'Tumatawag...';
+  callStatus.textContent = 'Calling...';
 }
 
 // Ilang mobile browser (lalo na sa Chrome Android) ay nano-block ng autoplay
@@ -826,8 +826,8 @@ function attemptPlay(videoEl) {
     playPromise.catch((err) => {
       // AbortError: napalitan lang ng bagong play() (hal. dumating ang audio at video track) — hindi problema
       if (err && err.name === 'AbortError') return;
-      console.warn('Na-block ang autoplay, maghihintay ng tap:', err);
-      showToast('I-tap ang screen para mag-play ang video/audio.', 4000);
+      console.warn('Autoplay blocked, waiting for a tap:', err);
+      showToast('Tap the screen to play video/audio.', 4000);
       const resumeOnTap = () => {
         videoEl.play().catch(() => {});
       };
@@ -879,7 +879,7 @@ addPersonBtn.addEventListener('click', () => {
     (u) => onlineUsernames.has(u.username) && !call.peers.has(u.username) && u.username !== myUsernameKey
   );
   if (candidates.length === 0) {
-    addPersonList.innerHTML = '<div class="no-contacts">Walang ibang online na puwedeng idagdag.</div>';
+    addPersonList.innerHTML = '<div class="no-contacts">No one else is online to add.</div>';
   } else {
     addPersonList.innerHTML = '';
     candidates.forEach((u) => {
@@ -889,12 +889,12 @@ addPersonBtn.addEventListener('click', () => {
       row.innerHTML = `
         <div class="avatar">${avatarInner(u.displayName, u.profilePicture)}</div>
         <div class="contact-info"><div class="contact-name">${escapeHtml(u.displayName)}</div>
-        <div class="contact-preview"><span>${invited ? 'Tinatawagan na...' : 'Online'}</span></div></div>
-        <button class="settings-save-btn add-person-invite" type="button" ${invited ? 'disabled' : ''}>${invited ? 'Naghihintay' : 'Idagdag'}</button>`;
+        <div class="contact-preview"><span>${invited ? 'Calling...' : 'Online'}</span></div></div>
+        <button class="settings-save-btn add-person-invite" type="button" ${invited ? 'disabled' : ''}>${invited ? 'Waiting' : 'Add'}</button>`;
       row.querySelector('button').addEventListener('click', () => {
         inviteToCall(u.username);
         addPersonModal.classList.add('hidden');
-        showToast(`Tinatawagan si ${u.displayName}...`);
+        showToast(`Calling ${u.displayName}...`);
       });
       addPersonList.appendChild(row);
     });
@@ -1008,7 +1008,7 @@ profilePhotoInput.addEventListener('change', async () => {
   const file = profilePhotoInput.files && profilePhotoInput.files[0];
   if (!file) return;
   if (!file.type.startsWith('image/')) {
-    showSettingsStatus('Larawan lang ang puwede.');
+    showSettingsStatus('Only images are allowed.');
     return;
   }
   try {
@@ -1020,7 +1020,7 @@ profilePhotoInput.addEventListener('change', async () => {
     });
     myProfilePicture = data.profilePicture || '';
     myAvatar.innerHTML = avatarInner(myUsername, myProfilePicture);
-    showSettingsStatus('Na-update ang larawan!', false);
+    showSettingsStatus('Photo updated!', false);
   } catch (err) {
     showSettingsStatus(err.message);
   }
@@ -1036,7 +1036,7 @@ removePhotoBtn.addEventListener('click', async () => {
     myProfilePicture = '';
     settingsAvatar.innerHTML = avatarInner(myUsername, '');
     myAvatar.innerHTML = avatarInner(myUsername, '');
-    showSettingsStatus('Naalis ang larawan.', false);
+    showSettingsStatus('Photo removed.', false);
   } catch (err) {
     showSettingsStatus(err.message);
   }
@@ -1045,7 +1045,7 @@ removePhotoBtn.addEventListener('click', async () => {
 saveNameBtn.addEventListener('click', async () => {
   const newName = settingsDisplayName.value.trim();
   if (newName.length < 2) {
-    showSettingsStatus('Kailangan ng hindi bababa sa 2 letra.');
+    showSettingsStatus('Must be at least 2 characters.');
     return;
   }
   try {
@@ -1057,7 +1057,7 @@ saveNameBtn.addEventListener('click', async () => {
     localStorage.setItem('umpat_username', myUsername);
     myNameLabel.textContent = myUsername;
     myAvatar.innerHTML = avatarInner(myUsername, myProfilePicture);
-    showSettingsStatus('Na-save ang pangalan!', false);
+    showSettingsStatus('Name saved!', false);
   } catch (err) {
     showSettingsStatus(err.message);
   }
@@ -1068,10 +1068,10 @@ saveNameBtn.addEventListener('click', async () => {
 function resizeImageToDataUrl(file, maxSize, quality) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Hindi mabasa ang file.'));
+    reader.onerror = () => reject(new Error('Could not read the file.'));
     reader.onload = () => {
       const img = new Image();
-      img.onerror = () => reject(new Error('Hindi mabasa ang larawan.'));
+      img.onerror = () => reject(new Error('Could not read the image.'));
       img.onload = () => {
         let { width, height } = img;
         if (width > height && width > maxSize) {
@@ -1121,7 +1121,7 @@ function previewForMessage(m) {
   if (m.message) return m.message;
   if (!m.attachment) return '';
   const kind = attachmentKind(m.attachment);
-  if (kind === 'image') return '📷 Larawan';
+  if (kind === 'image') return '📷 Photo';
   if (kind === 'video') return '🎬 Video';
   if (kind === 'audio') return '🎵 Audio';
   return '📎 ' + m.attachment.name;
@@ -1140,7 +1140,7 @@ function renderAttachment(a) {
     default:
       return `<a class="message-attachment msg-file" href="${url}?download=1" download="${name}">
         <span class="msg-file-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
-        <span class="msg-file-info"><span class="msg-file-name">${name}</span><span class="msg-file-size">${formatSize(a.size || 0)} • I-download</span></span>
+        <span class="msg-file-info"><span class="msg-file-name">${name}</span><span class="msg-file-size">${formatSize(a.size || 0)} • Download</span></span>
       </a>`;
   }
 }
@@ -1171,7 +1171,7 @@ attachInput.addEventListener('change', async () => {
     }
   }
   if (blob.size > 25 * 1024 * 1024) {
-    showToast('Masyadong malaki ang file (max 25 MB).', 4000);
+    showToast('File is too large (max 25 MB).', 4000);
     return;
   }
 
@@ -1179,7 +1179,7 @@ attachInput.addEventListener('change', async () => {
     const att = await uploadFile(blob, name, mime);
     socket.emit('chat-message', { to, message: '', attachment: att });
   } catch (err) {
-    showToast('Hindi naipadala: ' + err.message, 5000);
+    showToast('Could not send: ' + err.message, 5000);
   }
 });
 
@@ -1194,7 +1194,7 @@ function uploadFile(blob, name, mime) {
     if (appMode !== 'guest' && token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
 
     uploadProgress.classList.remove('hidden');
-    uploadProgressLabel.textContent = 'Ipinapadala ang ' + name + '...';
+    uploadProgressLabel.textContent = 'Sending ' + name + '...';
     uploadProgressBar.style.width = '0%';
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) uploadProgressBar.style.width = Math.round((e.loaded / e.total) * 100) + '%';
@@ -1210,7 +1210,7 @@ function uploadFile(blob, name, mime) {
     };
     xhr.onerror = () => {
       uploadProgress.classList.add('hidden');
-      reject(new Error('Walang koneksyon sa server.'));
+      reject(new Error('No connection to the server.'));
     };
     xhr.send(blob);
   });

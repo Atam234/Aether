@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="tl">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
@@ -12,8 +12,8 @@
 <body>
 
   <div id="webview-banner" class="webview-banner hidden">
-    <span>⚠️ Buksan sa Chrome para gumana ang video call.</span>
-    <button id="copy-link-btn" type="button">Kopyahin Link</button>
+    <span>⚠️ Open in Chrome for video calls to work.</span>
+    <button id="copy-link-btn" type="button">Copy Link</button>
     <button id="dismiss-banner-btn" type="button">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>
@@ -24,16 +24,16 @@
     <div class="join-card">
       <div class="join-logo">U</div>
       <h1>UMPAT Communication</h1>
-      <p id="guest-mode-notice" class="join-sub hidden">🔌 LAN Mode — walang permanenteng account, basta pangalan lang.</p>
+      <p id="guest-mode-notice" class="join-sub hidden">🔌 LAN Mode — no account needed, just enter your name.</p>
       <div id="auth-tabs" class="auth-tabs">
-        <button id="tab-login" class="auth-tab active" type="button">Mag-login</button>
-        <button id="tab-signup" class="auth-tab" type="button">Gumawa ng Account</button>
+        <button id="tab-login" class="auth-tab active" type="button">Log in</button>
+        <button id="tab-signup" class="auth-tab" type="button">Create Account</button>
       </div>
       <input type="text" id="auth-username" placeholder="Username" maxlength="24" autocomplete="off">
       <input type="password" id="auth-password" placeholder="Password" maxlength="64" autocomplete="off">
-      <button id="auth-submit-btn">Mag-login</button>
+      <button id="auth-submit-btn">Log in</button>
       <p id="auth-error" class="join-error hidden"></p>
-      <p id="auth-loading" class="join-sub hidden">Sandali lang...</p>
+      <p id="auth-loading" class="join-sub hidden">Please wait...</p>
     </div>
   </div>
 
@@ -54,7 +54,7 @@
       <button id="settings-btn" class="nav-rail-btn" title="Settings">
         <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
-      <button id="logout-btn" class="nav-rail-btn" title="Mag-logout">
+      <button id="logout-btn" class="nav-rail-btn" title="Log out">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
       </button>
     </div>
@@ -73,10 +73,10 @@
       </div>
       <div class="sidebar-search">
         <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="text" id="search-input" placeholder="Maghanap ng pangalan o mensahe...">
+        <input type="text" id="search-input" placeholder="Search names or messages...">
       </div>
       <div class="contacts-list" id="contacts-list">
-        <div class="no-contacts">Naghihintay ng ibang user...</div>
+        <div class="no-contacts">Waiting for other users...</div>
       </div>
     </div>
 
@@ -84,13 +84,13 @@
     <div class="chat-area">
       <div class="no-chat-selected" id="no-chat-selected">
         <div class="no-chat-icon">💬</div>
-        <p>Pumili ng kontak sa kaliwa para magsimulang mag-chat o tumawag.</p>
+        <p>Pick a contact to start chatting or calling.</p>
       </div>
 
       <div class="chat-window hidden" id="chat-window">
         <div class="chat-header">
           <div class="chat-contact-info">
-            <button class="icon-btn back-btn" id="back-btn" title="Bumalik">
+            <button class="icon-btn back-btn" id="back-btn" title="Back">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
             </button>
             <div class="avatar" id="chat-avatar"></div>
@@ -112,17 +112,17 @@
         <div class="messages-container" id="messages-container"></div>
 
         <div id="upload-progress" class="upload-progress hidden">
-          <span id="upload-progress-label">Ipinapadala...</span>
+          <span id="upload-progress-label">Sending...</span>
           <div class="upload-progress-track"><div id="upload-progress-bar"></div></div>
         </div>
 
         <div class="chat-input-area">
-          <button id="attach-btn" class="attach-btn" type="button" title="Magpadala ng larawan o file">
+          <button id="attach-btn" class="attach-btn" type="button" title="Send a photo or file">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
           </button>
           <input type="file" id="attach-input" class="hidden">
           <input type="text" id="message-input" placeholder="Aa" autocomplete="off">
-          <button id="send-btn" title="Ipadala">
+          <button id="send-btn" title="Send">
             <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
           </button>
         </div>
@@ -137,10 +137,10 @@
       <h2 id="caller-name"></h2>
       <p class="incoming-call-label" id="incoming-call-label">Video calling...</p>
       <div class="incoming-call-actions">
-        <button id="decline-call-btn" class="call-btn decline" title="Tanggihan">
+        <button id="decline-call-btn" class="call-btn decline" title="Decline">
           <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
-        <button id="accept-call-btn" class="call-btn accept" title="Sagutin">
+        <button id="accept-call-btn" class="call-btn accept" title="Answer">
           <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
         </button>
       </div>
@@ -152,19 +152,19 @@
     <div id="video-grid" class="video-grid" data-count="0"></div>
     <video id="local-video" autoplay playsinline muted></video>
     <div class="call-top-bar">
-      <span class="call-status" id="call-status">Tumatawag...</span>
+      <span class="call-status" id="call-status">Calling...</span>
     </div>
     <div class="call-controls">
-      <button class="control-btn" id="toggle-mic-btn" title="I-mute/Unmute">
+      <button class="control-btn" id="toggle-mic-btn" title="Mute/Unmute">
         <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
       </button>
-      <button class="control-btn end-call" id="end-call-btn" title="Tapusin ang tawag">
+      <button class="control-btn end-call" id="end-call-btn" title="End call">
         <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate(135deg);"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
       </button>
-      <button class="control-btn" id="toggle-cam-btn" title="Buksan/Isara ang camera">
+      <button class="control-btn" id="toggle-cam-btn" title="Turn camera on/off">
         <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
       </button>
-      <button class="control-btn" id="add-person-btn" title="Magdagdag ng tao sa tawag">
+      <button class="control-btn" id="add-person-btn" title="Add people to the call">
         <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
       </button>
     </div>
@@ -174,7 +174,7 @@
   <div id="add-person-modal" class="incoming-call-modal add-person-modal hidden">
     <div class="settings-card">
       <div class="settings-header">
-        <h2>Idagdag sa tawag</h2>
+        <h2>Add to call</h2>
         <button id="close-add-person-btn" class="icon-btn" type="button">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
@@ -188,7 +188,7 @@
     <img id="lightbox-img" alt="">
     <a id="lightbox-download" class="lightbox-download" href="#" download>
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-      I-download
+      Download
     </a>
   </div>
 
@@ -208,20 +208,20 @@
       <div class="settings-section settings-profile" id="settings-profile-section">
         <div class="avatar avatar-lg" id="settings-avatar"></div>
         <input type="file" id="profile-photo-input" accept="image/*" class="hidden">
-        <button id="choose-photo-btn" class="settings-link-btn" type="button">Palitan ang Larawan</button>
-        <button id="remove-photo-btn" class="settings-link-btn settings-link-danger" type="button">Alisin ang Larawan</button>
+        <button id="choose-photo-btn" class="settings-link-btn" type="button">Change Photo</button>
+        <button id="remove-photo-btn" class="settings-link-btn settings-link-danger" type="button">Remove Photo</button>
       </div>
 
       <div class="settings-section" id="settings-displayname-section">
         <label class="settings-label">Display Name</label>
         <input type="text" id="settings-displayname" maxlength="24">
-        <button id="save-name-btn" class="settings-save-btn" type="button">I-save</button>
+        <button id="save-name-btn" class="settings-save-btn" type="button">Save</button>
       </div>
 
       <div class="settings-section settings-row">
         <div>
           <div class="settings-label">Dark Mode</div>
-          <div class="join-sub" style="margin:0;">Madilim na tema para sa app</div>
+          <div class="join-sub" style="margin:0;">Dark theme for the app</div>
         </div>
         <label class="switch">
           <input type="checkbox" id="dark-mode-toggle">

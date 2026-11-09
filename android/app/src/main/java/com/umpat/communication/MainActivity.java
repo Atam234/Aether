@@ -303,14 +303,14 @@ public class MainActivity extends Activity {
     // ---------- Notifications ----------
 
     private void createNotificationChannels() {
-        NotificationChannel msg = new NotificationChannel(CH_MESSAGES, "Mga mensahe",
+        NotificationChannel msg = new NotificationChannel(CH_MESSAGES, "Messages",
                 NotificationManager.IMPORTANCE_HIGH);
-        msg.setDescription("Bagong mensahe sa UMPAT");
+        msg.setDescription("New messages in UMPAT");
         msg.enableVibration(true);
 
-        NotificationChannel calls = new NotificationChannel(CH_CALLS, "Mga tawag",
+        NotificationChannel calls = new NotificationChannel(CH_CALLS, "Calls",
                 NotificationManager.IMPORTANCE_HIGH);
-        calls.setDescription("Papasok na voice/video call");
+        calls.setDescription("Incoming voice/video calls");
         calls.enableVibration(true);
         calls.setVibrationPattern(new long[]{0, 600, 400, 600, 400, 600});
         calls.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
@@ -319,7 +319,7 @@ public class MainActivity extends Activity {
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                         .build());
 
-        NotificationChannel dl = new NotificationChannel(CH_DOWNLOADS, "Mga download",
+        NotificationChannel dl = new NotificationChannel(CH_DOWNLOADS, "Downloads",
                 NotificationManager.IMPORTANCE_DEFAULT);
 
         notificationManager.createNotificationChannel(msg);
@@ -357,7 +357,7 @@ public class MainActivity extends Activity {
         String guessed = URLUtil.guessFileName(url, contentDisposition, mimeType);
         // Tanggalin ang random na prefix na idinadagdag ng server (hal. "a1b2c3d4e5f60718-")
         final String fileName = guessed.replaceFirst("^[0-9a-f]{16}-", "");
-        Toast.makeText(this, "Dina-download: " + fileName, Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Downloading: " + fileName, Toast.LENGTH_SHORT).show();
 
         new Thread(() -> {
             HttpURLConnection c = null;
@@ -385,7 +385,7 @@ public class MainActivity extends Activity {
                         v.put(MediaStore.Downloads.MIME_TYPE, type);
                         v.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/UMPAT");
                         saved = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
-                        if (saved == null) throw new Exception("Hindi ma-save");
+                        if (saved == null) throw new Exception("Could not save");
                         try (OutputStream out = cr.openOutputStream(saved)) {
                             copy(in, out);
                         }
@@ -403,11 +403,11 @@ public class MainActivity extends Activity {
                 final Uri savedUri = saved;
                 final String savedWhere = where;
                 runOnUiThread(() -> {
-                    Toast.makeText(this, "Na-save sa " + savedWhere, Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "Saved to " + savedWhere, Toast.LENGTH_LONG).show();
                     showDownloadNotification(fileName, type, savedUri);
                 });
             } catch (Exception e) {
-                runOnUiThread(() -> Toast.makeText(this, "Hindi ma-download: " + e.getMessage(),
+                runOnUiThread(() -> Toast.makeText(this, "Download failed: " + e.getMessage(),
                         Toast.LENGTH_LONG).show());
             } finally {
                 if (c != null) c.disconnect();
@@ -426,7 +426,7 @@ public class MainActivity extends Activity {
         Notification.Builder b = new Notification.Builder(this, CH_DOWNLOADS)
                 .setSmallIcon(R.drawable.ic_stat_umpat)
                 .setColor(Color.parseColor("#00F5D4"))
-                .setContentTitle("Na-download")
+                .setContentTitle("Downloaded")
                 .setContentText(fileName)
                 .setAutoCancel(true);
         if (uri != null) {
@@ -645,12 +645,12 @@ public class MainActivity extends Activity {
                     + "border-radius:14px;margin:6px;cursor:pointer}"
                     + ".a{background:#00f5d4;color:#060b19;box-shadow:0 0 20px rgba(0,245,212,.35)}"
                     + ".b{background:rgba(30,41,59,.9);color:#e2e8f0;border:1px solid #334155}</style></head><body>"
-                    + "<h2>Hindi maabot ang server</h2>"
-                    + "<p><code>" + safe + "</code><br>Kung LAN: tingnan kung tumatakbo ang server sa Termux"
-                    + " at parehong Wi-Fi kayo. Kung Online: kailangan ng internet (mga 1 minuto bago"
-                    + " magising ang server kapag matagal walang gumamit).</p>"
-                    + "<div><button class='a' onclick=\"UmpatBridge.retry('" + safe + "')\">Subukan ulit</button>"
-                    + "<button class='b' onclick='UmpatBridge.showLauncher()'>Pumili ng server</button></div>"
+                    + "<h2>Can't reach the server</h2>"
+                    + "<p><code>" + safe + "</code><br>LAN: check that the server is running in Termux"
+                    + " and that you're on the same Wi-Fi. Online: you need internet (the server can take"
+                    + " about 1 minute to wake up if no one has used it for a while).</p>"
+                    + "<div><button class='a' onclick=\"UmpatBridge.retry('" + safe + "')\">Try again</button>"
+                    + "<button class='b' onclick='UmpatBridge.showLauncher()'>Choose server</button></div>"
                     + "</body></html>";
             view.loadDataWithBaseURL(null, html, "text/html", "UTF-8", failed);
         }
