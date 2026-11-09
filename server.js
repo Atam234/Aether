@@ -3,6 +3,7 @@
 // (basahin ang SETUP-ACCOUNTS-SOP.md para sa buong instructions)
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const express = require('express');
 const http = require('http');
@@ -77,9 +78,28 @@ function dbReady(res) {
 // Pampublikong endpoint para malaman ng client kung full-account mode ba
 // tayo (may database, online/Render) o Guest/LAN mode (walang database,
 // hal. tumatakbo lang via Termux sa loob ng LAN nang walang MongoDB setup).
+// Ginagamit din ito ng UMPAT Android app para mahanap ang server sa LAN
+// (LAN Scan), kaya may "app" at "name" na kasama.
 app.get('/api/mode', (req, res) => {
-  res.json({ hasDatabase: !!usersCollection });
+  res.json({
+    app: 'umpat',
+    name: process.env.SERVER_NAME || os.hostname(),
+    https: usingHttps,
+    hasDatabase: !!usersCollection,
+  });
 });
+
+// Lahat ng IPv4 address ng device na ito sa LAN (Wi-Fi / hotspot / ethernet)
+function getLanAddresses() {
+  const out = [];
+  const ifaces = os.networkInterfaces();
+  for (const name of Object.keys(ifaces)) {
+    for (const addr of ifaces[name] || []) {
+      if (addr.family === 'IPv4' && !addr.internal) out.push(addr.address);
+    }
+  }
+  return out;
+}
 
 // ============ Auth REST endpoints ============
 
@@ -362,6 +382,9 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('==================================================');
   console.log(`  Protocol : ${proto.toUpperCase()}`);
   console.log(`  Lokal    : ${proto}://localhost:${PORT}`);
+  getLanAddresses().forEach((ip) => {
+    console.log(`  LAN      : ${proto}://${ip}:${PORT}`);
+  });
   console.log(`  Database : ${MONGODB_URI ? 'Naka-configure' : 'WALANG MONGODB_URI'}`);
   console.log(
     `  TURN     : ${

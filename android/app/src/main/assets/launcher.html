@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="tl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>UMPAT</title>
+<style>
+  :root {
+    --navy-950: #060b19; --navy-900: #0a1128; --navy-800: #121d3d;
+    --cyan: #00f5d4; --cyan-300: #67e8f9; --emerald: #34d399; --slate: #94a3b8;
+    --border: rgba(51, 65, 85, 0.7); --rose: #fb7185;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(circle at top, #172554 0%, #050914 70%) fixed;
+    color: #f1f5f9; user-select: none;
+  }
+  .mono { font-family: ui-monospace, "JetBrains Mono", "Roboto Mono", monospace; }
+  button { font: inherit; border: none; cursor: pointer; }
+
+  header {
+    background: linear-gradient(145deg, #1d2b64 0%, #111c44 55%, #0c1430 100%);
+    padding: 22px 20px 16px; border-bottom: 1px solid rgba(30, 41, 59, 0.8);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand h1 { margin: 0; font-size: 24px; font-weight: 800; letter-spacing: 0.08em; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--emerald); box-shadow: 0 0 12px rgba(16,185,129,.7); }
+  .sub { margin-top: 3px; font-size: 11px; color: rgba(103, 232, 249, 0.8); }
+  .sub .accent { color: #6ee7b7; }
+
+  main { padding: 16px; max-width: 520px; margin: 0 auto; }
+  .section-title { font-size: 13px; font-weight: 700; margin: 18px 2px 8px; display: flex; justify-content: space-between; align-items: center; }
+  .section-title small { font-weight: 500; color: var(--slate); font-size: 11px; }
+
+  .card {
+    background: linear-gradient(145deg, rgba(28,42,78,.82) 0%, rgba(18,29,60,.88) 100%);
+    border: 1px solid var(--border); border-radius: 18px; padding: 13px 14px;
+    display: flex; align-items: center; gap: 12px; box-shadow: 0 4px 12px rgba(0,0,0,.18);
+  }
+  .card + .card { margin-top: 10px; }
+  .card.highlight { border-color: rgba(52, 211, 153, 0.55); }
+  .icon {
+    width: 42px; height: 42px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center; color: #fff;
+  }
+  .icon.lan { background: linear-gradient(135deg, #14b8a6, #059669); }
+  .icon.net { background: linear-gradient(135deg, #0ea5e9, #2563eb); }
+  .icon.last { background: linear-gradient(135deg, #6366f1, #2563eb); }
+  .icon svg { width: 20px; height: 20px; }
+  .info { flex: 1; min-width: 0; }
+  .info .name { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .info .meta { font-size: 10.5px; color: var(--slate); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta br + span { display: inline-block; margin-top: 2px; }
+  .info .meta.wrap { white-space: normal; }
+  .meta .ok { color: var(--emerald); } .meta .warn { color: #fbbf24; }
+  .btn {
+    padding: 8px 14px; border-radius: 12px; font-size: 12px; font-weight: 700; flex-shrink: 0;
+    background: var(--cyan); color: var(--navy-950); box-shadow: 0 0 14px rgba(0,245,212,.3);
+  }
+  .btn.green { background: #10b981; box-shadow: 0 0 14px rgba(16,185,129,.35); }
+  .btn:active, .radar-btn:active { transform: scale(0.96); }
+
+  /* Radar */
+  .scan-box { text-align: center; margin-top: 6px; }
+  .pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 10px;
+    background: rgba(0,245,212,.12); color: var(--cyan-300); border: 1px solid rgba(0,245,212,.3); }
+  .radar { position: relative; width: 168px; height: 168px; margin: 14px auto 6px; display: flex; align-items: center; justify-content: center; }
+  .ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid rgba(0,245,212,.5); opacity: 0; }
+  .scanning .ring { animation: pulse 2.4s cubic-bezier(.16,1,.3,1) infinite; }
+  .scanning .ring.r2 { border: 1px solid rgba(52,211,153,.45); animation-delay: 1.2s; }
+  @keyframes pulse { 0% { transform: scale(.4); opacity: .9; } 100% { transform: scale(1.35); opacity: 0; } }
+  .disc1 { width: 140px; height: 140px; border-radius: 50%; border: 1px solid rgba(51,65,85,.8); background: rgba(10,17,40,.6); display: flex; align-items: center; justify-content: center; }
+  .disc2 { width: 94px; height: 94px; border-radius: 50%; border: 1px solid rgba(51,65,85,.6); display: flex; align-items: center; justify-content: center; }
+  .radar-btn { width: 58px; height: 58px; border-radius: 50%; color: var(--navy-950);
+    background: linear-gradient(135deg, #22d3ee, #2563eb); box-shadow: 0 0 20px rgba(0,245,212,.35);
+    display: flex; align-items: center; justify-content: center; }
+  .radar-btn svg { width: 28px; height: 28px; }
+  .status { font-size: 11.5px; color: var(--emerald); min-height: 16px; }
+  .status.idle { color: var(--slate); }
+  .progress { height: 3px; border-radius: 3px; background: rgba(51,65,85,.6); overflow: hidden; margin: 8px 30px 0; }
+  .progress > div { height: 100%; width: 0; background: var(--cyan); transition: width .2s; }
+
+  .empty { text-align: center; color: var(--slate); font-size: 12px; padding: 14px 10px; line-height: 1.5; }
+
+  /* Manual IP */
+  .manual { display: flex; gap: 8px; }
+  .manual input {
+    flex: 1; min-width: 0; background: rgba(6,11,25,.9); border: 1px solid #334155; border-radius: 12px;
+    padding: 11px 12px; color: var(--emerald); font-size: 13px; outline: none; user-select: text;
+  }
+  .manual input:focus { border-color: var(--cyan); }
+  .hint { font-size: 10.5px; color: var(--slate); margin: 6px 2px 0; line-height: 1.5; }
+  .err { color: var(--rose); }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand"><h1>UMPAT</h1><span class="dot"></span></div>
+    <div class="sub mono">IP: <span id="my-ip">—</span> <span>•</span> <span class="accent">LAN + Internet</span></div>
+  </header>
+
+  <main>
+    <div id="last-wrap" style="display:none">
+      <div class="section-title">Huling ginamit</div>
+      <div class="card highlight">
+        <div class="icon last"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg></div>
+        <div class="info"><div class="name" id="last-name"></div><div class="meta mono" id="last-url"></div></div>
+        <button class="btn" id="last-btn">Buksan</button>
+      </div>
+    </div>
+
+    <div class="section-title">Local Network (LAN) <small class="mono">walang internet na kailangan</small></div>
+    <div class="scan-box">
+      <span class="pill mono">Port 3000 • <span id="subnets">192.168.x.0/24</span></span>
+      <div class="radar" id="radar">
+        <div class="ring"></div><div class="ring r2"></div>
+        <div class="disc1"><div class="disc2">
+          <button class="radar-btn" id="scan-btn" aria-label="I-scan ang LAN">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19.07 4.93A10 10 0 0 0 6.99 3.34"/><path d="M4 6h.01"/><path d="M2.29 9.62A10 10 0 1 0 21.31 8.35"/><path d="M16.24 7.76A6 6 0 1 0 8.23 16.67"/><path d="M12 18h.01"/><path d="M17.99 11.66A6 6 0 0 1 15.77 16.67"/><circle cx="12" cy="12" r="2"/><path d="m13.41 10.59 5.66-5.66"/></svg>
+          </button>
+        </div></div>
+      </div>
+      <div class="status idle mono" id="scan-status">Pindutin ang radar para maghanap</div>
+      <div class="progress"><div id="progress-bar"></div></div>
+    </div>
+    <div id="found-list" style="margin-top:14px"></div>
+
+    <div class="section-title">I-type ang IP ng server</div>
+    <div class="manual">
+      <input id="manual-ip" class="mono" type="text" inputmode="url" placeholder="192.168.1.5:3000" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button class="btn green" id="manual-btn">Kumonekta</button>
+    </div>
+    <p class="hint" id="manual-hint">Makikita ang IP sa Termux pagka-<span class="mono">node server.js</span> (linya na "LAN").</p>
+
+    <div class="section-title">Internet</div>
+    <div class="card">
+      <div class="icon net"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>
+      <div class="info"><div class="name">UMPAT Online</div><div class="meta mono" id="online-url"></div></div>
+      <button class="btn" id="online-btn">Buksan</button>
+    </div>
+    <p class="hint">May permanenteng account at chat history. Kailangan ng internet.</p>
+  </main>
+
+<script>
+  var B = window.UmpatBridge;
+  var found = {};
+
+  function esc(s) {
+    var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML;
+  }
+
+  function lanIcon() {
+    return '<div class="icon lan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg></div>';
+  }
+
+  function serverMeta(s) {
+    var sec = s.https
+      ? '<span class="ok">HTTPS • may video call</span>'
+      : '<span class="warn">HTTP • chat lang (gawin ang generate-cert.sh)</span>';
+    return esc(s.ip + ':' + s.port) + '<br>' + sec;
+  }
+
+  function renderFound() {
+    var list = document.getElementById('found-list');
+    var keys = Object.keys(found);
+    if (!keys.length) { list.innerHTML = ''; return; }
+    list.innerHTML = keys.map(function (k) {
+      var s = found[k];
+      return '<div class="card">' + lanIcon() +
+        '<div class="info"><div class="name">' + esc(s.name || 'UMPAT Server') + '</div>' +
+        '<div class="meta mono wrap">' + serverMeta(s) + '</div></div>' +
+        '<button class="btn green" data-url="' + esc(s.url) + '" data-name="' + esc(s.name || 'UMPAT LAN') + '">Kumonekta</button></div>';
+    }).join('');
+    Array.prototype.forEach.call(list.querySelectorAll('button[data-url]'), function (b) {
+      b.onclick = function () { B.open(b.getAttribute('data-url'), b.getAttribute('data-name')); };
+    });
+  }
+
+  // ---- Callbacks mula sa Java ----
+  window.onServerFound = function (s) {
+    // Sa Termux, kadalasan "localhost" ang hostname
+    if (!s.name || s.name === 'localhost') s.name = s.ip === '127.0.0.1' ? 'Ang phone na ito (Termux)' : 'UMPAT Server (Termux)';
+    found[s.url] = s;
+    renderFound();
+  };
+  window.onScanProgress = function (done, total) {
+    document.getElementById('progress-bar').style.width = Math.round((done / total) * 100) + '%';
+  };
+  window.onScanDone = function () {
+    document.getElementById('radar').classList.remove('scanning');
+    var n = Object.keys(found).length;
+    var st = document.getElementById('scan-status');
+    st.className = 'status mono' + (n ? '' : ' idle');
+    st.textContent = n ? 'Natagpuan: ' + n + ' UMPAT server' : 'Walang nakitang server. I-type na lang ang IP sa ibaba.';
+    if (!n) {
+      document.getElementById('found-list').innerHTML =
+        '<div class="empty">Siguraduhing tumatakbo ang <span class="mono">node server.js</span> sa Termux at parehong Wi-Fi/hotspot kayo.</div>';
+    }
+  };
+  window.onProbeResult = function (s) {
+    var btn = document.getElementById('manual-btn');
+    var hint = document.getElementById('manual-hint');
+    btn.disabled = false; btn.textContent = 'Kumonekta';
+    if (s) {
+      B.open(s.url, s.name || 'UMPAT LAN');
+    } else {
+      hint.innerHTML = '<span class="err">Hindi maabot ang server sa address na iyan.</span> Tingnan ang IP at port, at kung tumatakbo ang server.';
+    }
+  };
+
+  function startScan() {
+    if (document.getElementById('radar').classList.contains('scanning')) return;
+    found = {};
+    renderFound();
+    document.getElementById('radar').classList.add('scanning');
+    var st = document.getElementById('scan-status');
+    st.className = 'status mono';
+    st.textContent = 'Naghahanap sa LAN...';
+    document.getElementById('progress-bar').style.width = '0%';
+    B.startScan(3000);
+  }
+
+  function init() {
+    if (!B) return;
+    var net = {};
+    try { net = JSON.parse(B.getNetworkInfo()); } catch (e) {}
+    document.getElementById('my-ip').textContent = (net.ips && net.ips[0]) || 'walang Wi-Fi';
+    if (net.subnets && net.subnets.length) document.getElementById('subnets').textContent = net.subnets.join(', ');
+
+    var onlineUrl = B.getOnlineUrl();
+    document.getElementById('online-url').textContent = onlineUrl.replace(/^https?:\/\//, '');
+    document.getElementById('online-btn').onclick = function () { B.open(onlineUrl, 'UMPAT Online'); };
+
+    var last = {};
+    try { last = JSON.parse(B.getLastServer()); } catch (e) {}
+    if (last.url) {
+      document.getElementById('last-wrap').style.display = '';
+      document.getElementById('last-name').textContent = last.name || 'UMPAT';
+      document.getElementById('last-url').textContent = last.url.replace(/^https?:\/\//, '');
+      document.getElementById('last-btn').onclick = function () { B.open(last.url, last.name); };
+    }
+
+    document.getElementById('scan-btn').onclick = startScan;
+    document.getElementById('manual-btn').onclick = function () {
+      var v = document.getElementById('manual-ip').value.trim();
+      if (!v) return;
+      this.disabled = true; this.textContent = 'Sandali...';
+      B.probe(v);
+    };
+    document.getElementById('manual-ip').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') document.getElementById('manual-btn').click();
+    });
+
+    // Awtomatikong mag-scan pagbukas kung naka-Wi-Fi/hotspot
+    if (net.subnets && net.subnets.length) startScan();
+  }
+  init();
+</script>
+</body>
+</html>
