@@ -3,3 +3,9 @@ cert.pem
 key.pem
 .env
 npm-debug.log
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/*.keystore
+*.jks

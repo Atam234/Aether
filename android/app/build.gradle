@@ -1,0 +1,50 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.umpat.communication'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.umpat.communication'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+        // Ang online na UMPAT server (Render). Palitan kung lumipat ng URL.
+        buildConfigField 'String', 'APP_URL', '"https://aether-y4qp.onrender.com"'
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    signingConfigs {
+        release {
+            // Galing sa GitHub Secrets (tingnan ang .github/workflows/android-apk.yml).
+            // Kapag wala, debug key ang gagamitin para ma-install pa rin ang APK.
+            def ks = System.getenv('UMPAT_KEYSTORE_FILE')
+            if (ks) {
+                storeFile file(ks)
+                storePassword System.getenv('UMPAT_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('UMPAT_KEY_ALIAS')
+                keyPassword System.getenv('UMPAT_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig System.getenv('UMPAT_KEYSTORE_FILE')
+                    ? signingConfigs.release
+                    : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
