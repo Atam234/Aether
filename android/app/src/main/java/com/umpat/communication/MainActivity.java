@@ -3,6 +3,23 @@ package com.umpat.communication;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.ContentResolver;
+import android.content.ContentValues;
+import android.media.AudioAttributes;
+import android.media.RingtoneManager;
+import android.os.Build;
+import android.os.Environment;
+import android.provider.MediaStore;
+import android.webkit.URLUtil;
+import android.widget.Toast;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -75,6 +92,14 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> pendingFileCallback;
     private volatile String currentServerHost = null;
     private final AtomicBoolean scanning = new AtomicBoolean(false);
+    private volatile boolean inForeground = false;
+    private NotificationManager notificationManager;
+    private final Set<String> chatNotificationTags = Collections.synchronizedSet(new LinkedHashSet<>());
+
+    private static final String CH_MESSAGES = "messages";
+    private static final String CH_CALLS = "calls";
+    private static final String CH_DOWNLOADS = "downloads";
+    private static final int REQ_NOTIFICATIONS = 1003;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -105,6 +130,15 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new UmpatWebViewClient());
         webView.setWebChromeClient(new UmpatChromeClient());
         webView.addJavascriptInterface(new Bridge(), "UmpatBridge");
+        webView.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) ->
+                downloadFile(url, contentDisposition, mimeType));
+
+        notificationManager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        createNotificationChannels();
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATIONS);
+        }
 
         if (savedInstanceState != null) {
             currentServerHost = savedInstanceState.getString("host");
@@ -119,6 +153,26 @@ public class MainActivity extends Activity {
         super.onSaveInstanceState(outState);
         outState.putString("host", currentServerHost);
         webView.saveState(outState);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        inForeground = true;
+        // Bukas na ang app: alisin ang mga notification ng mensahe at tawag
+        if (notificationManager != null) {
+            synchronized (chatNotificationTags) {
+                for (String tag : chatNotificationTags) notificationManager.cancel(tag, 0);
+                chatNotificationTags.clear();
+            }
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        // Hindi pinapause ang WebView para patuloy na makatanggap ng mensahe/tawag
+        inForeground = false;
+        super.onPause();
     }
 
     @Override
@@ -212,6 +266,18 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> openServer(url));
         }
 
+        /** Tinatawag ng web app kapag may bagong mensahe o tawag. */
+        @JavascriptInterface
+        public void notify(String title, String body, String tag, boolean isCall) {
+            if (inForeground) return; // nakikita na sa screen (toast / ringing)
+            showNotification(title, body, tag, isCall);
+        }
+
+        @JavascriptInterface
+        public void cancelNotification(String tag) {
+            if (notificationManager != null && tag != null) notificationManager.cancel(tag, 0);
+        }
+
         @JavascriptInterface
         public void startScan(final int port) {
             if (!scanning.compareAndSet(false, true)) return;
@@ -232,6 +298,145 @@ public class MainActivity extends Activity {
                 callLauncher("onProbeResult(" + (found == null ? "null" : found.toString()) + ")");
             }).start();
         }
+    }
+
+    // ---------- Notifications ----------
+
+    private void createNotificationChannels() {
+        NotificationChannel msg = new NotificationChannel(CH_MESSAGES, "Mga mensahe",
+                NotificationManager.IMPORTANCE_HIGH);
+        msg.setDescription("Bagong mensahe sa UMPAT");
+        msg.enableVibration(true);
+
+        NotificationChannel calls = new NotificationChannel(CH_CALLS, "Mga tawag",
+                NotificationManager.IMPORTANCE_HIGH);
+        calls.setDescription("Papasok na voice/video call");
+        calls.enableVibration(true);
+        calls.setVibrationPattern(new long[]{0, 600, 400, 600, 400, 600});
+        calls.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
+                new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build());
+
+        NotificationChannel dl = new NotificationChannel(CH_DOWNLOADS, "Mga download",
+                NotificationManager.IMPORTANCE_DEFAULT);
+
+        notificationManager.createNotificationChannel(msg);
+        notificationManager.createNotificationChannel(calls);
+        notificationManager.createNotificationChannel(dl);
+    }
+
+    private PendingIntent openAppIntent() {
+        Intent i = new Intent(this, MainActivity.class);
+        i.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+        return PendingIntent.getActivity(this, 0, i,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    private void showNotification(String title, String body, String tag, boolean isCall) {
+        if (notificationManager == null) return;
+        Notification.Builder b = new Notification.Builder(this, isCall ? CH_CALLS : CH_MESSAGES)
+                .setSmallIcon(R.drawable.ic_stat_umpat)
+                .setColor(Color.parseColor("#00F5D4"))
+                .setContentTitle(title)
+                .setContentText(body)
+                .setStyle(new Notification.BigTextStyle().bigText(body))
+                .setContentIntent(openAppIntent())
+                .setAutoCancel(true)
+                .setCategory(isCall ? Notification.CATEGORY_CALL : Notification.CATEGORY_MESSAGE);
+        if (isCall) b.setTimeoutAfter(45000);
+        chatNotificationTags.add(tag);
+        notificationManager.notify(tag, 0, b.build());
+    }
+
+    // ---------- Pag-download ng file mula sa chat ----------
+
+    private void downloadFile(final String url, final String contentDisposition, final String mimeType) {
+        if (url == null || !(url.startsWith("http://") || url.startsWith("https://"))) return;
+        String guessed = URLUtil.guessFileName(url, contentDisposition, mimeType);
+        // Tanggalin ang random na prefix na idinadagdag ng server (hal. "a1b2c3d4e5f60718-")
+        final String fileName = guessed.replaceFirst("^[0-9a-f]{16}-", "");
+        Toast.makeText(this, "Dina-download: " + fileName, Toast.LENGTH_SHORT).show();
+
+        new Thread(() -> {
+            HttpURLConnection c = null;
+            try {
+                c = (HttpURLConnection) new URL(url).openConnection();
+                String host = Uri.parse(url).getHost();
+                if (c instanceof HttpsURLConnection && isPrivateHost(host)) {
+                    ((HttpsURLConnection) c).setSSLSocketFactory(trustAllFactory());
+                    ((HttpsURLConnection) c).setHostnameVerifier((h, sess) -> true);
+                }
+                String cookies = CookieManager.getInstance().getCookie(url);
+                if (cookies != null) c.setRequestProperty("Cookie", cookies);
+                c.setConnectTimeout(10000);
+                c.setReadTimeout(30000);
+                if (c.getResponseCode() != 200) throw new Exception("HTTP " + c.getResponseCode());
+                String type = mimeType != null && !mimeType.isEmpty() ? mimeType : "application/octet-stream";
+
+                Uri saved;
+                String where;
+                try (InputStream in = c.getInputStream()) {
+                    if (Build.VERSION.SDK_INT >= 29) {
+                        ContentResolver cr = getContentResolver();
+                        ContentValues v = new ContentValues();
+                        v.put(MediaStore.Downloads.DISPLAY_NAME, fileName);
+                        v.put(MediaStore.Downloads.MIME_TYPE, type);
+                        v.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/UMPAT");
+                        saved = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+                        if (saved == null) throw new Exception("Hindi ma-save");
+                        try (OutputStream out = cr.openOutputStream(saved)) {
+                            copy(in, out);
+                        }
+                        where = "Downloads/UMPAT";
+                    } else {
+                        File dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+                        File f = new File(dir, fileName);
+                        try (OutputStream out = new FileOutputStream(f)) {
+                            copy(in, out);
+                        }
+                        saved = null;
+                        where = f.getAbsolutePath();
+                    }
+                }
+                final Uri savedUri = saved;
+                final String savedWhere = where;
+                runOnUiThread(() -> {
+                    Toast.makeText(this, "Na-save sa " + savedWhere, Toast.LENGTH_LONG).show();
+                    showDownloadNotification(fileName, type, savedUri);
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> Toast.makeText(this, "Hindi ma-download: " + e.getMessage(),
+                        Toast.LENGTH_LONG).show());
+            } finally {
+                if (c != null) c.disconnect();
+            }
+        }).start();
+    }
+
+    private static void copy(InputStream in, OutputStream out) throws Exception {
+        byte[] buf = new byte[16384];
+        int n;
+        while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+    }
+
+    private void showDownloadNotification(String fileName, String type, Uri uri) {
+        if (notificationManager == null) return;
+        Notification.Builder b = new Notification.Builder(this, CH_DOWNLOADS)
+                .setSmallIcon(R.drawable.ic_stat_umpat)
+                .setColor(Color.parseColor("#00F5D4"))
+                .setContentTitle("Na-download")
+                .setContentText(fileName)
+                .setAutoCancel(true);
+        if (uri != null) {
+            Intent view = new Intent(Intent.ACTION_VIEW);
+            view.setDataAndType(uri, type);
+            view.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            b.setContentIntent(PendingIntent.getActivity(this, fileName.hashCode(), view,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+        }
+        notificationManager.notify("dl-" + fileName, 0, b.build());
     }
 
     // ---------- LAN discovery ----------

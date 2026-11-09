@@ -9,10 +9,6 @@ let currentChatUserName = null; // display name ng kausap
 let registeredUsers = []; // lahat ng naka-register (online mode) o kasalukuyang online (guest mode)
 let onlineUsernames = new Set();
 let localStream = null;
-let peerConnection = null;
-let pendingCallFrom = null;
-let pendingOffer = null;
-let inCallWith = null;
 
 const chatHistory = {}; // username -> array of {message, timestamp, mine}
 const lastMessages = {}; // username -> {message, timestamp, mine}
@@ -265,20 +261,22 @@ function enterApp(token, username) {
 
   socket.on('chat-message', (data) => {
     const contact = data.from === getUsernameKey() ? data.to : data.from;
-    addMessageToHistory(contact, {
+    const entry = {
       message: data.message,
-      timestamp: data.timestamp,
-      mine: data.from === getUsernameKey(),
-    });
-    lastMessages[contact] = {
-      message: data.message,
+      attachment: data.attachment || null,
       timestamp: data.timestamp,
       mine: data.from === getUsernameKey(),
     };
+    addMessageToHistory(contact, entry);
+    lastMessages[contact] = entry;
     if (contact === currentChatUserId) {
       renderMessages();
     } else if (data.from !== getUsernameKey()) {
       showToast(`Bagong mensahe mula kay ${nameForUsername(data.from)}`);
+      if (navigator.vibrate) navigator.vibrate(120);
+    }
+    if (data.from !== getUsernameKey()) {
+      notifyUser(nameForUsername(data.from), previewForMessage(entry), 'msg-' + data.from, false);
     }
     renderContacts();
   });
@@ -286,6 +284,7 @@ function enterApp(token, username) {
   socket.on('chat-history', ({ withUser, messages }) => {
     chatHistory[withUser] = messages.map((m) => ({
       message: m.message,
+      attachment: m.attachment || null,
       timestamp: m.timestamp,
       mine: m.from === getUsernameKey(),
     }));
@@ -293,6 +292,7 @@ function enterApp(token, username) {
   });
 
   registerSocketCallHandlers();
+  requestNotificationPermission();
 
   loadContactsAndHistory();
 }
@@ -388,7 +388,7 @@ function renderContacts() {
     const isOnline = onlineUsernames.has(user.username);
     const last = lastMessages[user.username];
     const previewText = last
-      ? (last.mine ? 'Ikaw: ' : '') + last.message
+      ? (last.mine ? 'Ikaw: ' : '') + previewForMessage(last)
       : isOnline
       ? 'Online'
       : 'Offline';
@@ -478,7 +478,8 @@ function renderMessages() {
     .map(
       (m) => `
     <div class="message-row ${m.mine ? 'mine' : 'theirs'}">
-      <div class="message-bubble">${escapeHtml(m.message)}</div>
+      ${m.attachment ? renderAttachment(m.attachment) : ''}
+      ${m.message ? `<div class="message-bubble">${escapeHtml(m.message)}</div>` : ''}
     </div>
   `
     )
@@ -486,17 +487,20 @@ function renderMessages() {
   messagesContainer.scrollTop = messagesContainer.scrollHeight;
 }
 
-// ---------- Video Call (WebRTC) — by username na ngayon, hindi socket id ----------
+// ---------- Group Video/Voice Call (WebRTC mesh) ----------
+// Bawat kalahok ay may sariling RTCPeerConnection papunta sa bawat isa.
+// Ang bagong sumali ang gumagawa ng "offer" sa mga nasa tawag na.
 
 const videoCallBtn = document.getElementById('video-call-btn');
 const voiceCallBtn = document.getElementById('voice-call-btn');
 const videoCallOverlay = document.getElementById('video-call-overlay');
+const videoGrid = document.getElementById('video-grid');
 const localVideo = document.getElementById('local-video');
-const remoteVideo = document.getElementById('remote-video');
 const callStatus = document.getElementById('call-status');
 const endCallBtn = document.getElementById('end-call-btn');
 const toggleMicBtn = document.getElementById('toggle-mic-btn');
 const toggleCamBtn = document.getElementById('toggle-cam-btn');
+const addPersonBtn = document.getElementById('add-person-btn');
 
 const incomingCallModal = document.getElementById('incoming-call-modal');
 const callerName = document.getElementById('caller-name');
@@ -505,95 +509,312 @@ const incomingCallLabel = document.getElementById('incoming-call-label');
 const acceptCallBtn = document.getElementById('accept-call-btn');
 const declineCallBtn = document.getElementById('decline-call-btn');
 
+const addPersonModal = document.getElementById('add-person-modal');
+const addPersonList = document.getElementById('add-person-list');
+
+// Kasalukuyang tawag
+let call = null; // { id, video, peers: Map(username -> {pc, tile, video, pendingIce}), invited: Set, everConnected }
+let incoming = null; // { from, callId, video, participants }
+let ringTimeout = null;
+let noAnswerTimeout = null;
+
 function registerSocketCallHandlers() {
-  socket.on('incoming-call', async ({ from, offer }) => {
-    if (peerConnection) {
-      socket.emit('end-call', { to: from });
+  socket.on('incoming-call', ({ from, callId, video, participants }) => {
+    if (call || incoming) {
+      socket.emit('call-decline', { to: from, callId, reason: 'busy' });
       return;
     }
-    pendingCallFrom = from;
-    pendingOffer = offer;
+    incoming = { from, callId, video, participants: participants || [from] };
     const displayName = nameForUsername(from);
     callerName.textContent = displayName;
     callerAvatar.innerHTML = avatarInner(displayName, pictureForUsername(from));
-    incomingCallLabel.textContent = 'Video calling...';
+    const others = incoming.participants.length - 1;
+    incomingCallLabel.textContent =
+      (video ? 'Video call' : 'Voice call') + (others > 0 ? ` • kasama ang ${others} pa` : '') + '...';
     incomingCallModal.classList.remove('hidden');
-  });
-
-  socket.on('call-answered', async ({ answer }) => {
-    if (!peerConnection) return;
-    await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-    callStatus.textContent = 'Nakakonekta';
-  });
-
-  socket.on('ice-candidate', async ({ candidate }) => {
-    if (peerConnection && candidate) {
-      try {
-        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (err) {
-        console.error('Error sa pag-add ng ICE candidate:', err);
+    startRinging();
+    notifyUser(
+      video ? 'Video call' : 'Voice call',
+      `Tumatawag si ${displayName}`,
+      'call-' + callId,
+      true
+    );
+    // Kapag hindi sinagot sa loob ng 45 segundo
+    clearTimeout(ringTimeout);
+    ringTimeout = setTimeout(() => {
+      if (incoming && incoming.callId === callId) {
+        socket.emit('call-decline', { to: from, callId, reason: 'no-answer' });
+        dismissIncoming();
+        showToast(`Missed call mula kay ${displayName}`);
       }
+    }, 45000);
+  });
+
+  // Sinagot o tinanggihan na sa ibang device mo
+  socket.on('call-handled', ({ callId }) => {
+    if (incoming && incoming.callId === callId && !(call && call.id === callId)) dismissIncoming();
+  });
+
+  socket.on('call-peer-joined', ({ callId, username }) => {
+    if (!call || call.id !== callId) return;
+    call.invited.delete(username);
+    ensurePeer(username); // hihintayin ang offer mula sa bagong sumali
+    updateCallStatus();
+  });
+
+  socket.on('call-signal', async ({ from, callId, data }) => {
+    if (!call || call.id !== callId || !data) return;
+    const peer = ensurePeer(from);
+    const pc = peer.pc;
+    try {
+      if (data.type === 'offer') {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        await flushIce(peer);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit('call-signal', { to: from, callId, data: { type: 'answer', sdp: pc.localDescription } });
+      } else if (data.type === 'answer') {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+        await flushIce(peer);
+      } else if (data.type === 'candidate' && data.candidate) {
+        if (pc.remoteDescription) {
+          await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+        } else {
+          peer.pendingIce.push(data.candidate);
+        }
+      }
+    } catch (err) {
+      console.error('Signaling error:', err);
     }
   });
 
-  socket.on('call-ended', () => {
-    showToast('Natapos ang tawag.');
-    endCall(false);
+  socket.on('call-peer-left', ({ callId, username }) => {
+    if (!call || call.id !== callId) return;
+    removePeer(username);
+    showToast(`Umalis si ${nameForUsername(username)} sa tawag.`);
+    checkCallEmpty();
+  });
+
+  socket.on('call-declined', ({ from, callId, reason }) => {
+    if (!call || call.id !== callId) return;
+    call.invited.delete(from);
+    const name = nameForUsername(from);
+    const msg =
+      reason === 'busy' ? `May ibang kausap si ${name}.`
+      : reason === 'offline' ? `Offline si ${name}.`
+      : reason === 'no-answer' ? `Hindi sumagot si ${name}.`
+      : `Tinanggihan ni ${name} ang tawag.`;
+    showToast(msg);
+    checkCallEmpty();
   });
 }
 
 videoCallBtn.addEventListener('click', () => startCall(true));
 voiceCallBtn.addEventListener('click', () => startCall(false));
 
-async function startCall(withVideo) {
-  if (!currentChatUserId) return;
+async function getMedia(withVideo) {
   if (!window.isSecureContext) {
     showToast('Kailangan ng HTTPS para gumana ang camera/mic.', 5000);
-    return;
+    return null;
   }
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({ video: withVideo, audio: true });
+    return await navigator.mediaDevices.getUserMedia({ video: withVideo, audio: true });
   } catch (err) {
     showToast('Hindi ma-access ang camera/mic: ' + err.message, 5000);
+    return null;
+  }
+}
+
+async function startCall(withVideo) {
+  if (!currentChatUserId || call) return;
+  const target = currentChatUserId;
+  localStream = await getMedia(withVideo);
+  if (!localStream) return;
+
+  const { callId } = await new Promise((resolve) => socket.emit('call-create', resolve));
+  call = { id: callId, video: withVideo, peers: new Map(), invited: new Set(), everConnected: false };
+  openCallOverlay(withVideo);
+  inviteToCall(target);
+}
+
+function inviteToCall(username) {
+  if (!call || call.peers.has(username) || call.invited.has(username)) return;
+  call.invited.add(username);
+  socket.emit('call-invite', { to: username, callId: call.id, video: call.video });
+  updateCallStatus();
+  // Kapag walang sumagot sa loob ng 50 segundo
+  clearTimeout(noAnswerTimeout);
+  noAnswerTimeout = setTimeout(() => {
+    if (!call) return;
+    call.invited.clear();
+    if (call.peers.size === 0) {
+      showToast('Walang sumagot.');
+      endCall();
+    } else {
+      updateCallStatus();
+    }
+  }, 50000);
+}
+
+acceptCallBtn.addEventListener('click', async () => {
+  if (!incoming) return;
+  const inv = incoming;
+  dismissIncoming();
+  localStream = await getMedia(inv.video);
+  if (!localStream) {
+    socket.emit('call-decline', { to: inv.from, callId: inv.callId });
     return;
   }
+  call = { id: inv.callId, video: inv.video, peers: new Map(), invited: new Set(), everConnected: false };
+  openCallOverlay(inv.video);
+  callStatus.textContent = 'Kumokonekta...';
+
+  socket.emit('call-join', { callId: inv.callId }, async (res) => {
+    if (!res || res.error) {
+      showToast(res && res.error ? res.error : 'Hindi makasali sa tawag.');
+      endCall();
+      return;
+    }
+    // Ako ang bagong sumali: ako ang gagawa ng offer sa bawat kalahok
+    for (const username of res.participants) {
+      const peer = ensurePeer(username);
+      try {
+        const offer = await peer.pc.createOffer();
+        await peer.pc.setLocalDescription(offer);
+        socket.emit('call-signal', {
+          to: username,
+          callId: inv.callId,
+          data: { type: 'offer', sdp: peer.pc.localDescription },
+        });
+      } catch (err) {
+        console.error('Offer error:', err);
+      }
+    }
+    updateCallStatus();
+  });
+
+  if (!currentChatUserId) openChat(inv.from, nameForUsername(inv.from));
+});
+
+declineCallBtn.addEventListener('click', () => {
+  if (!incoming) return;
+  socket.emit('call-decline', { to: incoming.from, callId: incoming.callId });
+  dismissIncoming();
+});
+
+function dismissIncoming() {
+  incomingCallModal.classList.add('hidden');
+  stopRinging();
+  clearTimeout(ringTimeout);
+  if (incoming) cancelNotification('call-' + incoming.callId);
+  incoming = null;
+}
+
+function ensurePeer(username) {
+  if (call.peers.has(username)) return call.peers.get(username);
+
+  const pc = new RTCPeerConnection(ICE_SERVERS);
+  const tile = document.createElement('div');
+  tile.className = 'video-tile';
+  const name = nameForUsername(username);
+  tile.innerHTML = `
+    <div class="tile-avatar"><div class="avatar avatar-lg">${avatarInner(name, pictureForUsername(username))}</div></div>
+    <video autoplay playsinline></video>
+    <span class="tile-name">${escapeHtml(name)}</span>`;
+  const video = tile.querySelector('video');
+  videoGrid.appendChild(tile);
+
+  const peer = { pc, tile, video, pendingIce: [] };
+  call.peers.set(username, peer);
+  layoutGrid();
+
+  if (localStream) localStream.getTracks().forEach((t) => pc.addTrack(t, localStream));
+
+  pc.onicecandidate = (e) => {
+    if (e.candidate && call) {
+      socket.emit('call-signal', { to: username, callId: call.id, data: { type: 'candidate', candidate: e.candidate } });
+    }
+  };
+  pc.ontrack = (e) => {
+    if (video.srcObject === e.streams[0]) return;
+    video.srcObject = e.streams[0];
+    attemptPlay(video);
+    const hasVideo = e.streams[0].getVideoTracks().length > 0;
+    tile.classList.toggle('has-video', hasVideo);
+    e.streams[0].onaddtrack = () => tile.classList.toggle('has-video', e.streams[0].getVideoTracks().length > 0);
+  };
+  pc.onconnectionstatechange = () => {
+    if (!call) return;
+    if (pc.connectionState === 'connected') {
+      call.everConnected = true;
+      updateCallStatus();
+    } else if (pc.connectionState === 'failed') {
+      removePeer(username);
+      showToast(`Naputol ang koneksyon kay ${name}.`);
+      checkCallEmpty();
+    }
+  };
+  return peer;
+}
+
+async function flushIce(peer) {
+  while (peer.pendingIce.length) {
+    try {
+      await peer.pc.addIceCandidate(new RTCIceCandidate(peer.pendingIce.shift()));
+    } catch (err) {
+      console.warn('ICE error:', err);
+    }
+  }
+}
+
+function removePeer(username) {
+  if (!call) return;
+  const peer = call.peers.get(username);
+  if (!peer) return;
+  peer.pc.close();
+  peer.tile.remove();
+  call.peers.delete(username);
+  layoutGrid();
+  updateCallStatus();
+}
+
+function checkCallEmpty() {
+  if (call && call.peers.size === 0 && call.invited.size === 0) {
+    if (call.everConnected) showToast('Natapos ang tawag.');
+    endCall();
+  }
+}
+
+function layoutGrid() {
+  const n = call ? call.peers.size : 0;
+  videoGrid.dataset.count = String(Math.min(n, 6));
+}
+
+function updateCallStatus() {
+  if (!call) return;
+  const n = call.peers.size;
+  const connected = Array.from(call.peers.values()).filter((p) => p.pc.connectionState === 'connected').length;
+  if (n === 0) {
+    callStatus.textContent = call.invited.size ? 'Tumatawag...' : 'Naghihintay...';
+  } else if (connected === 0) {
+    callStatus.textContent = 'Kumokonekta...';
+  } else {
+    callStatus.textContent = n === 1 ? 'Nakakonekta' : `Group call • ${n + 1} kalahok`;
+    if (call.invited.size) callStatus.textContent += ` • tumatawag sa ${call.invited.size}`;
+  }
+}
+
+function openCallOverlay(withVideo) {
   localVideo.srcObject = localStream;
   attemptPlay(localVideo);
   localVideo.classList.toggle('hidden', !withVideo);
-  inCallWith = currentChatUserId;
-  showCallOverlay('Tumatawag...');
-
-  peerConnection = createPeerConnection(currentChatUserId);
-  localStream.getTracks().forEach((track) => peerConnection.addTrack(track, localStream));
-
-  const offer = await peerConnection.createOffer();
-  await peerConnection.setLocalDescription(offer);
-
-  socket.emit('call-user', { to: currentChatUserId, offer });
-}
-
-function createPeerConnection(targetUsername) {
-  const pc = new RTCPeerConnection(ICE_SERVERS);
-
-  pc.onicecandidate = (event) => {
-    if (event.candidate) {
-      socket.emit('ice-candidate', { to: targetUsername, candidate: event.candidate });
-    }
-  };
-
-  pc.ontrack = (event) => {
-    remoteVideo.srcObject = event.streams[0];
-    attemptPlay(remoteVideo);
-    callStatus.textContent = 'Nakakonekta';
-  };
-
-  pc.onconnectionstatechange = () => {
-    if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
-      endCall(false);
-    }
-  };
-
-  return pc;
+  toggleCamBtn.classList.toggle('hidden', !withVideo);
+  toggleMicBtn.classList.remove('off');
+  toggleCamBtn.classList.remove('off');
+  videoGrid.innerHTML = '';
+  layoutGrid();
+  videoCallOverlay.classList.remove('hidden');
+  callStatus.textContent = 'Tumatawag...';
 }
 
 // Ilang mobile browser (lalo na sa Chrome Android) ay nano-block ng autoplay
@@ -603,6 +824,8 @@ function attemptPlay(videoEl) {
   const playPromise = videoEl.play();
   if (playPromise !== undefined) {
     playPromise.catch((err) => {
+      // AbortError: napalitan lang ng bagong play() (hal. dumating ang audio at video track) — hindi problema
+      if (err && err.name === 'AbortError') return;
       console.warn('Na-block ang autoplay, maghihintay ng tap:', err);
       showToast('I-tap ang screen para mag-play ang video/audio.', 4000);
       const resumeOnTap = () => {
@@ -614,79 +837,22 @@ function attemptPlay(videoEl) {
   }
 }
 
-acceptCallBtn.addEventListener('click', async () => {
-  incomingCallModal.classList.add('hidden');
-  if (!window.isSecureContext) {
-    showToast('Kailangan ng HTTPS para gumana ang camera/mic.', 5000);
-    socket.emit('end-call', { to: pendingCallFrom });
-    pendingCallFrom = null;
-    pendingOffer = null;
-    return;
-  }
-  try {
-    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-  } catch (err) {
-    showToast('Hindi ma-access ang camera/mic: ' + err.message, 5000);
-    socket.emit('end-call', { to: pendingCallFrom });
-    pendingCallFrom = null;
-    pendingOffer = null;
-    return;
-  }
-  localVideo.srcObject = localStream;
-  attemptPlay(localVideo);
-  localVideo.classList.remove('hidden');
-  inCallWith = pendingCallFrom;
-  showCallOverlay('Kumokonekta...');
+endCallBtn.addEventListener('click', () => endCall());
 
-  peerConnection = createPeerConnection(pendingCallFrom);
-  localStream.getTracks().forEach((track) => peerConnection.addTrack(track, localStream));
-
-  await peerConnection.setRemoteDescription(new RTCSessionDescription(pendingOffer));
-  const answer = await peerConnection.createAnswer();
-  await peerConnection.setLocalDescription(answer);
-
-  socket.emit('answer-call', { to: pendingCallFrom, answer });
-
-  if (!currentChatUserId) {
-    openChat(pendingCallFrom, nameForUsername(pendingCallFrom));
-  }
-
-  pendingCallFrom = null;
-  pendingOffer = null;
-});
-
-declineCallBtn.addEventListener('click', () => {
-  incomingCallModal.classList.add('hidden');
-  if (pendingCallFrom) socket.emit('end-call', { to: pendingCallFrom });
-  pendingCallFrom = null;
-  pendingOffer = null;
-});
-
-function showCallOverlay(status) {
-  videoCallOverlay.classList.remove('hidden');
-  callStatus.textContent = status;
-}
-
-endCallBtn.addEventListener('click', () => endCall(true));
-
-function endCall(notifyPeer) {
-  if (notifyPeer && inCallWith) {
-    socket.emit('end-call', { to: inCallWith });
-  }
-  if (peerConnection) {
-    peerConnection.close();
-    peerConnection = null;
-  }
+function endCall() {
+  if (!call) return;
+  socket.emit('call-leave', { callId: call.id });
+  call.peers.forEach((p) => p.pc.close());
+  call = null;
+  clearTimeout(noAnswerTimeout);
   if (localStream) {
     localStream.getTracks().forEach((t) => t.stop());
     localStream = null;
   }
-  remoteVideo.srcObject = null;
   localVideo.srcObject = null;
+  videoGrid.innerHTML = '';
   videoCallOverlay.classList.add('hidden');
-  pendingCallFrom = null;
-  pendingOffer = null;
-  inCallWith = null;
+  addPersonModal.classList.add('hidden');
 }
 
 toggleMicBtn.addEventListener('click', () => {
@@ -704,6 +870,86 @@ toggleCamBtn.addEventListener('click', () => {
   videoTrack.enabled = !videoTrack.enabled;
   toggleCamBtn.classList.toggle('off', !videoTrack.enabled);
 });
+
+// --- Magdagdag ng tao sa tawag (group call) ---
+
+addPersonBtn.addEventListener('click', () => {
+  if (!call) return;
+  const candidates = registeredUsers.filter(
+    (u) => onlineUsernames.has(u.username) && !call.peers.has(u.username) && u.username !== myUsernameKey
+  );
+  if (candidates.length === 0) {
+    addPersonList.innerHTML = '<div class="no-contacts">Walang ibang online na puwedeng idagdag.</div>';
+  } else {
+    addPersonList.innerHTML = '';
+    candidates.forEach((u) => {
+      const invited = call.invited.has(u.username);
+      const row = document.createElement('div');
+      row.className = 'contact-item';
+      row.innerHTML = `
+        <div class="avatar">${avatarInner(u.displayName, u.profilePicture)}</div>
+        <div class="contact-info"><div class="contact-name">${escapeHtml(u.displayName)}</div>
+        <div class="contact-preview"><span>${invited ? 'Tinatawagan na...' : 'Online'}</span></div></div>
+        <button class="settings-save-btn add-person-invite" type="button" ${invited ? 'disabled' : ''}>${invited ? 'Naghihintay' : 'Idagdag'}</button>`;
+      row.querySelector('button').addEventListener('click', () => {
+        inviteToCall(u.username);
+        addPersonModal.classList.add('hidden');
+        showToast(`Tinatawagan si ${u.displayName}...`);
+      });
+      addPersonList.appendChild(row);
+    });
+  }
+  addPersonModal.classList.remove('hidden');
+});
+
+document.getElementById('close-add-person-btn').addEventListener('click', () => {
+  addPersonModal.classList.add('hidden');
+});
+
+// --- Ringtone (gawa sa Web Audio, walang audio file na kailangan) ---
+
+let ringCtx = null;
+let ringTimer = null;
+
+function startRinging() {
+  stopRinging();
+  try {
+    ringCtx = new (window.AudioContext || window.webkitAudioContext)();
+  } catch (e) {
+    ringCtx = null;
+  }
+  const ringOnce = () => {
+    if (navigator.vibrate) navigator.vibrate([400, 200, 400]);
+    if (!ringCtx) return;
+    if (ringCtx.state === 'suspended') ringCtx.resume().catch(() => {});
+    [0, 0.45].forEach((offset) => {
+      const t = ringCtx.currentTime + offset;
+      const osc = ringCtx.createOscillator();
+      const gain = ringCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, t);
+      osc.frequency.setValueAtTime(660, t + 0.18);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.25, t + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.38);
+      osc.connect(gain).connect(ringCtx.destination);
+      osc.start(t);
+      osc.stop(t + 0.4);
+    });
+  };
+  ringOnce();
+  ringTimer = setInterval(ringOnce, 2200);
+}
+
+function stopRinging() {
+  clearInterval(ringTimer);
+  ringTimer = null;
+  if (navigator.vibrate) navigator.vibrate(0);
+  if (ringCtx) {
+    ringCtx.close().catch(() => {});
+    ringCtx = null;
+  }
+}
 
 // ---------- Search filter ----------
 
@@ -846,4 +1092,204 @@ function resizeImageToDataUrl(file, maxSize, quality) {
     };
     reader.readAsDataURL(file);
   });
+}
+
+// ---------- Pagpadala ng File / Larawan ----------
+
+const attachBtn = document.getElementById('attach-btn');
+const attachInput = document.getElementById('attach-input');
+const uploadProgress = document.getElementById('upload-progress');
+const uploadProgressBar = document.getElementById('upload-progress-bar');
+const uploadProgressLabel = document.getElementById('upload-progress-label');
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function attachmentKind(a) {
+  const mime = (a.mime || '').toLowerCase();
+  const name = (a.name || '').toLowerCase();
+  if (mime.startsWith('image/') && !mime.includes('svg')) return 'image';
+  if (mime.startsWith('video/') || /\.(mp4|webm)$/.test(name)) return 'video';
+  if (mime.startsWith('audio/') || /\.(mp3|m4a|ogg|wav)$/.test(name)) return 'audio';
+  return 'file';
+}
+
+function previewForMessage(m) {
+  if (m.message) return m.message;
+  if (!m.attachment) return '';
+  const kind = attachmentKind(m.attachment);
+  if (kind === 'image') return '📷 Larawan';
+  if (kind === 'video') return '🎬 Video';
+  if (kind === 'audio') return '🎵 Audio';
+  return '📎 ' + m.attachment.name;
+}
+
+function renderAttachment(a) {
+  const url = escapeHtml(a.url);
+  const name = escapeHtml(a.name || 'file');
+  switch (attachmentKind(a)) {
+    case 'image':
+      return `<div class="message-attachment"><img class="msg-image" src="${url}" alt="${name}" loading="lazy" data-full="${url}"></div>`;
+    case 'video':
+      return `<div class="message-attachment"><video class="msg-video" src="${url}" controls playsinline preload="metadata"></video></div>`;
+    case 'audio':
+      return `<div class="message-attachment"><audio class="msg-audio" src="${url}" controls preload="metadata"></audio></div>`;
+    default:
+      return `<a class="message-attachment msg-file" href="${url}?download=1" download="${name}">
+        <span class="msg-file-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
+        <span class="msg-file-info"><span class="msg-file-name">${name}</span><span class="msg-file-size">${formatSize(a.size || 0)} • I-download</span></span>
+      </a>`;
+  }
+}
+
+attachBtn.addEventListener('click', () => {
+  if (!currentChatUserId) return;
+  attachInput.click();
+});
+
+attachInput.addEventListener('change', async () => {
+  const file = attachInput.files && attachInput.files[0];
+  attachInput.value = '';
+  if (!file || !currentChatUserId) return;
+  const to = currentChatUserId;
+
+  let blob = file;
+  let name = file.name || 'file';
+  let mime = file.type || 'application/octet-stream';
+  // Kino-compress ang mga larawan (maliban sa GIF) para mabilis ipadala
+  if (mime.startsWith('image/') && !/gif|svg/.test(mime)) {
+    try {
+      const dataUrl = await resizeImageToDataUrl(file, 1600, 0.85);
+      blob = await (await fetch(dataUrl)).blob();
+      mime = 'image/jpeg';
+      name = name.replace(/\.[^.]+$/, '') + '.jpg';
+    } catch (e) {
+      // gamitin na lang ang orihinal
+    }
+  }
+  if (blob.size > 25 * 1024 * 1024) {
+    showToast('Masyadong malaki ang file (max 25 MB).', 4000);
+    return;
+  }
+
+  try {
+    const att = await uploadFile(blob, name, mime);
+    socket.emit('chat-message', { to, message: '', attachment: att });
+  } catch (err) {
+    showToast('Hindi naipadala: ' + err.message, 5000);
+  }
+});
+
+function uploadFile(blob, name, mime) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/upload');
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.setRequestHeader('X-File-Name', encodeURIComponent(name));
+    xhr.setRequestHeader('X-File-Type', mime);
+    const token = localStorage.getItem('umpat_token');
+    if (appMode !== 'guest' && token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+
+    uploadProgress.classList.remove('hidden');
+    uploadProgressLabel.textContent = 'Ipinapadala ang ' + name + '...';
+    uploadProgressBar.style.width = '0%';
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) uploadProgressBar.style.width = Math.round((e.loaded / e.total) * 100) + '%';
+    };
+    xhr.onload = () => {
+      uploadProgress.classList.add('hidden');
+      let data = {};
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch (e) {}
+      if (xhr.status >= 200 && xhr.status < 300 && data.url) resolve(data);
+      else reject(new Error(data.error || 'Error ' + xhr.status));
+    };
+    xhr.onerror = () => {
+      uploadProgress.classList.add('hidden');
+      reject(new Error('Walang koneksyon sa server.'));
+    };
+    xhr.send(blob);
+  });
+}
+
+// --- Lightbox para sa larawan ---
+
+const lightbox = document.getElementById('lightbox');
+const lightboxImg = document.getElementById('lightbox-img');
+const lightboxDownload = document.getElementById('lightbox-download');
+
+messagesContainer.addEventListener('click', (e) => {
+  const img = e.target.closest('.msg-image');
+  if (!img) return;
+  const url = img.getAttribute('data-full');
+  lightboxImg.src = url;
+  lightboxDownload.href = url + '?download=1';
+  lightbox.classList.remove('hidden');
+});
+
+// Kapag nag-load ang larawan, i-scroll pababa (para hindi matakpan ang bagong mensahe)
+messagesContainer.addEventListener('load', (e) => {
+  if (e.target.classList && e.target.classList.contains('msg-image')) {
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  }
+}, true);
+
+lightbox.addEventListener('click', (e) => {
+  if (e.target.closest('#lightbox-download')) return;
+  lightbox.classList.add('hidden');
+  lightboxImg.src = '';
+});
+
+// ---------- Notifications ----------
+// Sa APK: native na Android notification (UmpatBridge). Sa browser:
+// Web Notification API habang nakatago/naka-minimize ang tab.
+
+function hasNativeBridge() {
+  return typeof window.UmpatBridge !== 'undefined' && typeof window.UmpatBridge.notify === 'function';
+}
+
+function requestNotificationPermission() {
+  if (hasNativeBridge()) return; // ang APK na ang bahala
+  if (!('Notification' in window) || !window.isSecureContext) return;
+  if (Notification.permission === 'default') {
+    // Hinihingi lang pagkatapos ng unang click (kailangan ng ibang browser)
+    document.addEventListener('click', () => Notification.requestPermission().catch(() => {}), { once: true });
+  }
+}
+
+const webNotifications = {};
+
+function notifyUser(title, body, tag, isCall) {
+  if (hasNativeBridge()) {
+    try {
+      window.UmpatBridge.notify(String(title), String(body), String(tag), !!isCall);
+    } catch (e) {}
+    return;
+  }
+  if (!document.hidden) return;
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  try {
+    const n = new Notification(title, { body, tag, renotify: true, requireInteraction: !!isCall });
+    n.onclick = () => {
+      window.focus();
+      n.close();
+    };
+    webNotifications[tag] = n;
+  } catch (e) {}
+}
+
+function cancelNotification(tag) {
+  if (hasNativeBridge() && typeof window.UmpatBridge.cancelNotification === 'function') {
+    try {
+      window.UmpatBridge.cancelNotification(String(tag));
+    } catch (e) {}
+  }
+  if (webNotifications[tag]) {
+    webNotifications[tag].close();
+    delete webNotifications[tag];
+  }
 }
