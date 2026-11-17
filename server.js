@@ -325,20 +325,45 @@ io.on('connection', (socket) => {
   });
 
   // --- WebRTC Signaling (by username na, hindi socket id) ---
-  socket.on('call-user', ({ to, offer }) => {
-    sendToUser(to, 'incoming-call', { from: username, offer });
+  // Ipaalam sa IBANG tabs/devices ng parehong user na nasagot/natanggihan na
+  // ang tawag, para mawala rin ang "incoming call" doon.
+  function notifyMyOtherSockets(event, payload) {
+    const sockets = socketsByUsername.get(username);
+    if (!sockets) return;
+    sockets.forEach((sid) => {
+      if (sid !== socket.id) io.to(sid).emit(event, payload);
+    });
+  }
+
+  socket.on('call-user', ({ to, offer, video } = {}) => {
+    if (!to || !offer) return;
+    if (!socketsByUsername.has(to)) {
+      socket.emit('call-unavailable', { to });
+      return;
+    }
+    sendToUser(to, 'incoming-call', { from: username, offer, video: video !== false });
   });
 
-  socket.on('answer-call', ({ to, answer }) => {
+  socket.on('answer-call', ({ to, answer } = {}) => {
+    if (!to || !answer) return;
     sendToUser(to, 'call-answered', { from: username, answer });
+    notifyMyOtherSockets('call-handled-elsewhere', { with: to });
   });
 
-  socket.on('ice-candidate', ({ to, candidate }) => {
+  socket.on('ice-candidate', ({ to, candidate } = {}) => {
+    if (!to || !candidate) return;
     sendToUser(to, 'ice-candidate', { from: username, candidate });
   });
 
-  socket.on('end-call', ({ to }) => {
+  socket.on('call-busy', ({ to } = {}) => {
+    if (!to) return;
+    sendToUser(to, 'call-busy', { from: username });
+  });
+
+  socket.on('end-call', ({ to } = {}) => {
+    if (!to) return;
     sendToUser(to, 'call-ended', { from: username });
+    notifyMyOtherSockets('call-handled-elsewhere', { with: to });
   });
 
   socket.on('disconnect', () => {
