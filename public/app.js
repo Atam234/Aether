@@ -505,71 +505,211 @@ const incomingCallLabel = document.getElementById('incoming-call-label');
 const acceptCallBtn = document.getElementById('accept-call-btn');
 const declineCallBtn = document.getElementById('decline-call-btn');
 
+const RING_TIMEOUT_MS = 45000; // gaano katagal mag-ring bago ituring na "walang sumagot"
+const DISCONNECT_GRACE_MS = 10000; // palugit kapag pansamantalang nawala ang koneksyon
+
+let pendingCallVideo = true; // video call ba o voice call ang papasok na tawag
+let currentCallVideo = true;
+// ICE candidates na dumating BAGO pa na-set ang remote description (o bago pa
+// nagawa ang peerConnection sa side ng tinatawagan). Dati, itinatapon lang ang
+// mga ito — kaya hindi makabuo ng koneksyon at itim lang ang screen.
+let queuedCandidates = [];
+let ringTimer = null;
+let disconnectTimer = null;
+
+function clearCallTimers() {
+  clearTimeout(ringTimer);
+  clearTimeout(disconnectTimer);
+  ringTimer = null;
+  disconnectTimer = null;
+}
+
+async function flushQueuedCandidates() {
+  if (!peerConnection || !peerConnection.remoteDescription) return;
+  const list = queuedCandidates;
+  queuedCandidates = [];
+  for (const c of list) {
+    try {
+      await peerConnection.addIceCandidate(new RTCIceCandidate(c));
+    } catch (err) {
+      console.warn('Error sa pag-add ng naka-queue na ICE candidate:', err);
+    }
+  }
+}
+
+function hideIncomingCall() {
+  incomingCallModal.classList.add('hidden');
+  if (navigator.vibrate) navigator.vibrate(0);
+  pendingCallFrom = null;
+  pendingOffer = null;
+}
+
 function registerSocketCallHandlers() {
-  socket.on('incoming-call', async ({ from, offer }) => {
-    if (peerConnection) {
-      socket.emit('end-call', { to: from });
+  socket.on('incoming-call', ({ from, offer, video }) => {
+    // Abala na (may kausap o may nagri-ring pa) — sabihan ang tumatawag.
+    if (peerConnection || (pendingCallFrom && pendingCallFrom !== from)) {
+      socket.emit('call-busy', { to: from });
       return;
     }
     pendingCallFrom = from;
     pendingOffer = offer;
+    pendingCallVideo = video !== false;
+    queuedCandidates = [];
     const displayName = nameForUsername(from);
     callerName.textContent = displayName;
     callerAvatar.innerHTML = avatarInner(displayName, pictureForUsername(from));
-    incomingCallLabel.textContent = 'Video calling...';
+    incomingCallLabel.textContent = pendingCallVideo ? 'Video calling...' : 'Voice calling...';
     incomingCallModal.classList.remove('hidden');
-  });
+    if (navigator.vibrate) navigator.vibrate([600, 400, 600, 400, 600, 400, 600]);
 
-  socket.on('call-answered', async ({ answer }) => {
-    if (!peerConnection) return;
-    await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-    callStatus.textContent = 'Nakakonekta';
-  });
-
-  socket.on('ice-candidate', async ({ candidate }) => {
-    if (peerConnection && candidate) {
-      try {
-        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (err) {
-        console.error('Error sa pag-add ng ICE candidate:', err);
+    clearTimeout(ringTimer);
+    ringTimer = setTimeout(() => {
+      if (pendingCallFrom === from) {
+        hideIncomingCall();
+        showToast(`Missed call mula kay ${displayName}`, 5000);
       }
+    }, RING_TIMEOUT_MS);
+  });
+
+  socket.on('call-answered', async ({ from, answer }) => {
+    if (!peerConnection || from !== inCallWith) return;
+    if (peerConnection.signalingState !== 'have-local-offer') return; // sinagot na sa ibang device
+    clearTimeout(ringTimer);
+    try {
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+      callStatus.textContent = 'Kumokonekta...';
+      await flushQueuedCandidates();
+    } catch (err) {
+      console.error('Error sa pag-set ng answer:', err);
+      showToast('Hindi maikonekta ang tawag. Subukan ulit.', 5000);
+      endCall(true);
     }
   });
 
-  socket.on('call-ended', () => {
+  socket.on('ice-candidate', async ({ from, candidate }) => {
+    if (!candidate) return;
+    if (from !== inCallWith && from !== pendingCallFrom) return;
+    if (peerConnection && peerConnection.remoteDescription) {
+      try {
+        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.warn('Error sa pag-add ng ICE candidate:', err);
+      }
+    } else {
+      queuedCandidates.push(candidate);
+    }
+  });
+
+  socket.on('call-ended', ({ from }) => {
+    if (from && from === pendingCallFrom) {
+      // Ibinaba ng tumatawag habang nagri-ring pa sa atin
+      const name = nameForUsername(from);
+      hideIncomingCall();
+      clearCallTimers();
+      showToast(`Missed call mula kay ${name}`, 5000);
+      return;
+    }
+    if (from && from !== inCallWith) return; // galing sa ibang tawag — huwag pansinin
     showToast('Natapos ang tawag.');
     endCall(false);
+  });
+
+  socket.on('call-busy', ({ from }) => {
+    if (from !== inCallWith) return;
+    showToast(`May ibang kausap si ${nameForUsername(from)}. Subukan ulit mamaya.`, 5000);
+    endCall(false);
+  });
+
+  socket.on('call-unavailable', ({ to }) => {
+    if (to !== inCallWith) return;
+    showToast(`Offline si ${nameForUsername(to)} — hindi matawagan ngayon.`, 5000);
+    endCall(false);
+  });
+
+  // Sinagot/tinanggihan na ang tawag sa ibang tab/device ng parehong account
+  socket.on('call-handled-elsewhere', ({ with: other }) => {
+    if (other === pendingCallFrom) {
+      hideIncomingCall();
+      clearCallTimers();
+    }
   });
 }
 
 videoCallBtn.addEventListener('click', () => startCall(true));
 voiceCallBtn.addEventListener('click', () => startCall(false));
 
+async function getLocalMedia(withVideo) {
+  try {
+    return await navigator.mediaDevices.getUserMedia({ video: withVideo, audio: true });
+  } catch (err) {
+    if (!withVideo) throw err;
+    // Kung ayaw gumana ng camera (ginagamit ng ibang app, walang permiso, atbp.),
+    // ituloy na lang bilang voice call kaysa tuluyang pumalya ang tawag.
+    console.warn('Hindi ma-access ang camera, audio na lang:', err);
+    const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: true });
+    showToast('Hindi ma-access ang camera — audio lang ang maipapadala.', 4000);
+    return stream;
+  }
+}
+
+function setupLocalPreview() {
+  localVideo.srcObject = localStream;
+  const hasVideo = localStream.getVideoTracks().length > 0;
+  localVideo.classList.toggle('hidden', !hasVideo);
+  if (hasVideo) attemptPlay(localVideo);
+  toggleMicBtn.classList.remove('off');
+  toggleCamBtn.classList.toggle('off', !hasVideo);
+}
+
 async function startCall(withVideo) {
-  if (!currentChatUserId) return;
+  if (!currentChatUserId || peerConnection) return;
   if (!window.isSecureContext) {
     showToast('Kailangan ng HTTPS para gumana ang camera/mic.', 5000);
     return;
   }
+  if (!onlineUsernames.has(currentChatUserId)) {
+    showToast(`Offline si ${currentChatUserName} — hindi matawagan ngayon.`, 5000);
+    return;
+  }
+  const target = currentChatUserId;
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({ video: withVideo, audio: true });
+    localStream = await getLocalMedia(withVideo);
   } catch (err) {
     showToast('Hindi ma-access ang camera/mic: ' + err.message, 5000);
     return;
   }
-  localVideo.srcObject = localStream;
-  attemptPlay(localVideo);
-  localVideo.classList.toggle('hidden', !withVideo);
-  inCallWith = currentChatUserId;
-  showCallOverlay('Tumatawag...');
+  currentCallVideo = withVideo;
+  inCallWith = target;
+  queuedCandidates = [];
+  setupLocalPreview();
+  showCallOverlay(`Tumatawag kay ${nameForUsername(target)}...`);
 
-  peerConnection = createPeerConnection(currentChatUserId);
-  localStream.getTracks().forEach((track) => peerConnection.addTrack(track, localStream));
+  try {
+    peerConnection = createPeerConnection(target);
+    localStream.getTracks().forEach((track) => peerConnection.addTrack(track, localStream));
+    // Siguraduhing may video "slot" pa rin para matanggap ang video ng kabila
+    // kahit audio lang ang sa atin (hal. sira/naka-block ang camera natin).
+    if (withVideo && localStream.getVideoTracks().length === 0) {
+      peerConnection.addTransceiver('video', { direction: 'recvonly' });
+    }
 
-  const offer = await peerConnection.createOffer();
-  await peerConnection.setLocalDescription(offer);
+    const offer = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offer);
+    socket.emit('call-user', { to: target, offer: peerConnection.localDescription, video: withVideo });
+  } catch (err) {
+    console.error('Error sa pagsisimula ng tawag:', err);
+    showToast('Hindi masimulan ang tawag: ' + err.message, 5000);
+    endCall(true);
+    return;
+  }
 
-  socket.emit('call-user', { to: currentChatUserId, offer });
+  clearTimeout(ringTimer);
+  ringTimer = setTimeout(() => {
+    if (inCallWith === target && peerConnection && peerConnection.signalingState === 'have-local-offer') {
+      showToast('Walang sumagot.', 4000);
+      endCall(true);
+    }
+  }, RING_TIMEOUT_MS);
 }
 
 function createPeerConnection(targetUsername) {
@@ -582,14 +722,45 @@ function createPeerConnection(targetUsername) {
   };
 
   pc.ontrack = (event) => {
-    remoteVideo.srcObject = event.streams[0];
+    let stream = event.streams && event.streams[0];
+    if (!stream) {
+      stream = remoteVideo.srcObject instanceof MediaStream ? remoteVideo.srcObject : new MediaStream();
+      stream.addTrack(event.track);
+    }
+    if (remoteVideo.srcObject !== stream) remoteVideo.srcObject = stream;
     attemptPlay(remoteVideo);
-    callStatus.textContent = 'Nakakonekta';
   };
 
   pc.onconnectionstatechange = () => {
-    if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
-      endCall(false);
+    if (pc !== peerConnection) return;
+    switch (pc.connectionState) {
+      case 'connected':
+        clearTimeout(disconnectTimer);
+        disconnectTimer = null;
+        callStatus.textContent = currentCallVideo ? 'Nakakonekta' : 'Voice call • Nakakonekta';
+        attemptPlay(remoteVideo);
+        break;
+      case 'disconnected':
+        // Kadalasan pansamantala lang ito (hal. humina ang signal) — bigyan ng
+        // palugit bago tuluyang ibaba ang tawag.
+        callStatus.textContent = 'Nawawala ang koneksyon...';
+        clearTimeout(disconnectTimer);
+        disconnectTimer = setTimeout(() => {
+          if (pc === peerConnection && pc.connectionState !== 'connected') {
+            showToast('Naputol ang koneksyon.', 4000);
+            endCall(true);
+          }
+        }, DISCONNECT_GRACE_MS);
+        break;
+      case 'failed':
+        showToast(
+          'Hindi makabuo ng koneksyon sa pagitan ng dalawang phone. Kung magkaiba kayo ng network/mobile data, kailangan ng TURN server (TURN_USERNAME/TURN_CREDENTIAL sa Render).',
+          8000
+        );
+        endCall(true); // sabihan din ang kabila para hindi siya maiwang naka-itim na screen
+        break;
+      default:
+        break;
     }
   };
 
@@ -600,9 +771,11 @@ function createPeerConnection(targetUsername) {
 // kahit may "autoplay" attribute na — kailangan pa ng explicit na .play() call.
 // Kung na-block pa rin, maghihintay ng tap kahit saan sa screen bago ulit subukan.
 function attemptPlay(videoEl) {
+  if (!videoEl.srcObject) return;
   const playPromise = videoEl.play();
   if (playPromise !== undefined) {
     playPromise.catch((err) => {
+      if (err && err.name === 'AbortError') return; // napalitan lang ang srcObject, hindi problema
       console.warn('Na-block ang autoplay, maghihintay ng tap:', err);
       showToast('I-tap ang screen para mag-play ang video/audio.', 4000);
       const resumeOnTap = () => {
@@ -615,51 +788,67 @@ function attemptPlay(videoEl) {
 }
 
 acceptCallBtn.addEventListener('click', async () => {
+  const from = pendingCallFrom;
+  const offer = pendingOffer;
+  const withVideo = pendingCallVideo;
   incomingCallModal.classList.add('hidden');
+  if (navigator.vibrate) navigator.vibrate(0);
+  clearTimeout(ringTimer);
+  if (!from || !offer) return;
+
   if (!window.isSecureContext) {
     showToast('Kailangan ng HTTPS para gumana ang camera/mic.', 5000);
-    socket.emit('end-call', { to: pendingCallFrom });
-    pendingCallFrom = null;
-    pendingOffer = null;
+    socket.emit('end-call', { to: from });
+    hideIncomingCall();
     return;
   }
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    localStream = await getLocalMedia(withVideo);
   } catch (err) {
     showToast('Hindi ma-access ang camera/mic: ' + err.message, 5000);
-    socket.emit('end-call', { to: pendingCallFrom });
-    pendingCallFrom = null;
-    pendingOffer = null;
+    socket.emit('end-call', { to: from });
+    hideIncomingCall();
     return;
   }
-  localVideo.srcObject = localStream;
-  attemptPlay(localVideo);
-  localVideo.classList.remove('hidden');
-  inCallWith = pendingCallFrom;
-  showCallOverlay('Kumokonekta...');
-
-  peerConnection = createPeerConnection(pendingCallFrom);
-  localStream.getTracks().forEach((track) => peerConnection.addTrack(track, localStream));
-
-  await peerConnection.setRemoteDescription(new RTCSessionDescription(pendingOffer));
-  const answer = await peerConnection.createAnswer();
-  await peerConnection.setLocalDescription(answer);
-
-  socket.emit('answer-call', { to: pendingCallFrom, answer });
-
-  if (!currentChatUserId) {
-    openChat(pendingCallFrom, nameForUsername(pendingCallFrom));
+  // Baka ibinaba na ng tumatawag habang naghihintay tayo ng camera permission
+  if (pendingCallFrom !== from) {
+    localStream.getTracks().forEach((t) => t.stop());
+    localStream = null;
+    return;
   }
 
+  currentCallVideo = withVideo;
+  inCallWith = from;
   pendingCallFrom = null;
   pendingOffer = null;
+  setupLocalPreview();
+  showCallOverlay('Kumokonekta...');
+
+  try {
+    peerConnection = createPeerConnection(from);
+    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+    localStream.getTracks().forEach((track) => peerConnection.addTrack(track, localStream));
+    await flushQueuedCandidates();
+    const answer = await peerConnection.createAnswer();
+    await peerConnection.setLocalDescription(answer);
+    socket.emit('answer-call', { to: from, answer: peerConnection.localDescription });
+  } catch (err) {
+    console.error('Error sa pagsagot ng tawag:', err);
+    showToast('Hindi masagot ang tawag: ' + err.message, 5000);
+    endCall(true);
+    return;
+  }
+
+  if (currentChatUserId !== from) {
+    openChat(from, nameForUsername(from));
+  }
 });
 
 declineCallBtn.addEventListener('click', () => {
-  incomingCallModal.classList.add('hidden');
   if (pendingCallFrom) socket.emit('end-call', { to: pendingCallFrom });
-  pendingCallFrom = null;
-  pendingOffer = null;
+  hideIncomingCall();
+  clearCallTimers();
+  queuedCandidates = [];
 });
 
 function showCallOverlay(status) {
@@ -670,12 +859,17 @@ function showCallOverlay(status) {
 endCallBtn.addEventListener('click', () => endCall(true));
 
 function endCall(notifyPeer) {
-  if (notifyPeer && inCallWith) {
+  if (notifyPeer && inCallWith && socket) {
     socket.emit('end-call', { to: inCallWith });
   }
+  clearCallTimers();
   if (peerConnection) {
-    peerConnection.close();
-    peerConnection = null;
+    const pc = peerConnection;
+    peerConnection = null; // unahin para hindi na tumakbo ang onconnectionstatechange
+    pc.ontrack = null;
+    pc.onicecandidate = null;
+    pc.onconnectionstatechange = null;
+    pc.close();
   }
   if (localStream) {
     localStream.getTracks().forEach((t) => t.stop());
@@ -684,10 +878,17 @@ function endCall(notifyPeer) {
   remoteVideo.srcObject = null;
   localVideo.srcObject = null;
   videoCallOverlay.classList.add('hidden');
-  pendingCallFrom = null;
-  pendingOffer = null;
+  toggleMicBtn.classList.remove('off');
+  toggleCamBtn.classList.remove('off');
+  queuedCandidates = [];
   inCallWith = null;
 }
+
+// Kapag isinara/ni-reload ang page habang may tawag, sabihan ang kabila.
+window.addEventListener('pagehide', () => {
+  if (inCallWith && socket) socket.emit('end-call', { to: inCallWith });
+  else if (pendingCallFrom && socket) socket.emit('end-call', { to: pendingCallFrom });
+});
 
 toggleMicBtn.addEventListener('click', () => {
   if (!localStream) return;
@@ -703,6 +904,7 @@ toggleCamBtn.addEventListener('click', () => {
   if (!videoTrack) return;
   videoTrack.enabled = !videoTrack.enabled;
   toggleCamBtn.classList.toggle('off', !videoTrack.enabled);
+  localVideo.classList.toggle('hidden', !videoTrack.enabled);
 });
 
 // ---------- Search filter ----------
