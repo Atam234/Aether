@@ -1189,3 +1189,11 @@ html.dark-mode .messages-container {
     right: 12px;
   }
 }
+
+/* Salamin (mirror) ang sariling preview kapag front camera */
+#local-video.mirrored { transform: scaleX(-1); }
+.control-btn:disabled { opacity: 0.5; }
+@media (max-width: 380px) {
+  .call-controls { gap: 12px; padding: 10px 14px; }
+  .control-btn { width: 48px; height: 48px; }
+}

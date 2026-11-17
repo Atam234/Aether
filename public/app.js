@@ -497,6 +497,7 @@ const callStatus = document.getElementById('call-status');
 const endCallBtn = document.getElementById('end-call-btn');
 const toggleMicBtn = document.getElementById('toggle-mic-btn');
 const toggleCamBtn = document.getElementById('toggle-cam-btn');
+const switchCamBtn = document.getElementById('switch-cam-btn');
 
 const incomingCallModal = document.getElementById('incoming-call-modal');
 const callerName = document.getElementById('caller-name');
@@ -638,9 +639,25 @@ function registerSocketCallHandlers() {
 videoCallBtn.addEventListener('click', () => startCall(true));
 voiceCallBtn.addEventListener('click', () => startCall(false));
 
+// Laging FRONT camera (selfie) ang default para mukha mo ang makita ng kausap.
+// Ilang Android phone ay likod na camera ang binubuksan kapag hindi ito tinukoy.
+let currentFacingMode = 'user';
+
+function videoConstraints(facingMode) {
+  return {
+    facingMode: { ideal: facingMode },
+    width: { ideal: 640 },
+    height: { ideal: 480 },
+  };
+}
+
 async function getLocalMedia(withVideo) {
+  currentFacingMode = 'user';
   try {
-    return await navigator.mediaDevices.getUserMedia({ video: withVideo, audio: true });
+    return await navigator.mediaDevices.getUserMedia({
+      video: withVideo ? videoConstraints('user') : false,
+      audio: true,
+    });
   } catch (err) {
     if (!withVideo) throw err;
     // Kung ayaw gumana ng camera (ginagamit ng ibang app, walang permiso, atbp.),
@@ -657,8 +674,60 @@ function setupLocalPreview() {
   const hasVideo = localStream.getVideoTracks().length > 0;
   localVideo.classList.toggle('hidden', !hasVideo);
   if (hasVideo) attemptPlay(localVideo);
+  updateLocalMirror();
   toggleMicBtn.classList.remove('off');
   toggleCamBtn.classList.toggle('off', !hasVideo);
+  switchCamBtn.classList.toggle('hidden', !hasVideo);
+}
+
+// Naka-salamin (mirror) ang sariling preview kapag front camera, gaya ng
+// karaniwang video call apps. Hindi nito binabago ang ipinapadala sa kausap.
+function updateLocalMirror() {
+  localVideo.classList.toggle('mirrored', currentFacingMode === 'user');
+}
+
+// Palitan ang camera (harap <-> likod) habang nasa tawag, nang hindi
+// pinuputol ang koneksyon (gamit ang RTCRtpSender.replaceTrack).
+async function switchCamera() {
+  if (!localStream) return;
+  const oldTrack = localStream.getVideoTracks()[0];
+  if (!oldTrack) return;
+  const nextFacing = currentFacingMode === 'user' ? 'environment' : 'user';
+  const wasEnabled = oldTrack.enabled;
+  switchCamBtn.disabled = true;
+  // Kailangang ihinto muna ang lumang camera — maraming Android phone ang
+  // hindi kayang buksan ang dalawang camera nang sabay.
+  oldTrack.stop();
+  let newTrack;
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ video: videoConstraints(nextFacing), audio: false });
+    newTrack = s.getVideoTracks()[0];
+    currentFacingMode = nextFacing;
+  } catch (err) {
+    console.warn('Hindi mapalitan ang camera:', err);
+    showToast('Hindi mapalitan ang camera.', 3000);
+    const s = await navigator.mediaDevices
+      .getUserMedia({ video: videoConstraints(currentFacingMode), audio: false })
+      .catch(() => null);
+    newTrack = s && s.getVideoTracks()[0];
+  }
+  switchCamBtn.disabled = false;
+  localStream.removeTrack(oldTrack);
+  if (!newTrack || !localStream) return;
+  newTrack.enabled = wasEnabled;
+  localStream.addTrack(newTrack);
+  if (peerConnection) {
+    const videoSender =
+      peerConnection.getSenders().find((sd) => sd.track === oldTrack) ||
+      peerConnection
+        .getTransceivers()
+        .map((t) => t.sender)
+        .find((sd) => sd.track && sd.track.kind === 'video');
+    if (videoSender) await videoSender.replaceTrack(newTrack);
+  }
+  localVideo.srcObject = localStream;
+  attemptPlay(localVideo);
+  updateLocalMirror();
 }
 
 async function startCall(withVideo) {
@@ -906,6 +975,8 @@ toggleCamBtn.addEventListener('click', () => {
   toggleCamBtn.classList.toggle('off', !videoTrack.enabled);
   localVideo.classList.toggle('hidden', !videoTrack.enabled);
 });
+
+switchCamBtn.addEventListener('click', switchCamera);
 
 // ---------- Search filter ----------
 
